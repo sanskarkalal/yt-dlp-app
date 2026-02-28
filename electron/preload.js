@@ -1,21 +1,13 @@
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 780,
-    height: 700,
-    titleBarStyle: "hiddenInset",
-    backgroundColor: "#0a0a0f",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
-  });
+const { contextBridge, ipcRenderer } = require('electron')
 
-  if (process.env.NODE_ENV === "development") {
-    win.loadURL("http://localhost:5173");
-    win.webContents.openDevTools();
-  } else {
-    win.loadFile(path.join(__dirname, "../dist/index.html"));
-  }
-}
+contextBridge.exposeInMainWorld('electronAPI', {
+  getVideoInfo: (url) => ipcRenderer.invoke('get-video-info', url),
+  selectFolder: () => ipcRenderer.invoke('select-folder'),
+  getDownloadsPath: () => ipcRenderer.invoke('get-downloads-path'),
+  download: (opts) => ipcRenderer.invoke('download', opts),
+  cancelDownload: () => ipcRenderer.invoke('cancel-download'),
+  onProgress: (cb) => {
+    ipcRenderer.removeAllListeners('download-progress')
+    ipcRenderer.on('download-progress', (_, percent) => cb(percent))
+  },
+})
