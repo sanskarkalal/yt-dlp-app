@@ -4,14 +4,47 @@ const os = require("os");
 const fs = require("fs");
 const { spawn } = require("child_process");
 
-const YTDLP = "/opt/homebrew/bin/yt-dlp";
-const FFMPEG = "/opt/homebrew/bin/ffmpeg";
+// --- Cross-platform binary detection ---
+function findBinary(name) {
+  const isWin = process.platform === "win32";
+  const candidates = isWin
+    ? [
+        `C:\\yt-dlp\\${name}.exe`,
+        path.join(
+          os.homedir(),
+          `AppData\\Local\\Programs\\${name}\\${name}.exe`,
+        ),
+        `C:\\Program Files\\${name}\\${name}.exe`,
+        path.join(os.homedir(), `scoop\\shims\\${name}.exe`),
+        `C:\\ProgramData\\chocolatey\\bin\\${name}.exe`,
+        `${name}.exe`,
+      ]
+    : [
+        `/opt/homebrew/bin/${name}`,
+        `/usr/local/bin/${name}`,
+        `/usr/bin/${name}`,
+        name,
+      ];
+
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c)) return c;
+    } catch {}
+  }
+  return isWin ? `${name}.exe` : name;
+}
+
+const YTDLP = findBinary("yt-dlp");
+const FFMPEG_DIR = path.dirname(findBinary("ffmpeg"));
 const COOKIES_PATH = path.join(
   os.homedir(),
   "Documents",
   "yt-dlp-app",
   "cookies.txt",
 );
+
+console.log("[paths] yt-dlp:", YTDLP);
+console.log("[paths] ffmpeg dir:", FFMPEG_DIR);
 
 let activeDownload = null;
 
@@ -29,7 +62,7 @@ function createWindow() {
     height: 720,
     minWidth: 900,
     minHeight: 600,
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     backgroundColor: "#0a0a0f",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -51,18 +84,14 @@ function createWindow() {
 
 app.whenReady().then(() => {
   const win = createWindow();
-
-  // Auto-export cookies on first launch if not already done
-  if (!cookiesExist()) {
-    exportCookies(win);
-  }
+  if (!cookiesExist()) exportCookies(win);
 });
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// --- Export Cookies (one-time, triggers keychain prompt) ---
+// --- Export Cookies ---
 function exportCookies(win) {
   return new Promise((resolve) => {
     console.log("[cookies] Exporting cookies from Chrome...");
@@ -72,29 +101,21 @@ function exportCookies(win) {
       "--cookies",
       COOKIES_PATH,
       "--skip-download",
-      "https://www.youtube.com/robots.txt",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     ]);
     proc.stderr.on("data", (d) => console.error("[cookies]", d.toString()));
     proc.on("close", (code) => {
       const success = code === 0 && cookiesExist();
-      console.log(
-        "[cookies] Export",
-        success ? "succeeded" : "failed",
-        "code:",
-        code,
-      );
-      if (win && !win.isDestroyed()) {
+      console.log("[cookies] Export", success ? "succeeded" : "failed");
+      if (win && !win.isDestroyed())
         win.webContents.send("cookies-status", success);
-      }
       resolve(success);
     });
   });
 }
 
-// --- Check cookies status ---
 ipcMain.handle("get-cookies-status", () => cookiesExist());
 
-// --- Refresh cookies (user triggered) ---
 ipcMain.handle("export-cookies", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   return exportCookies(win);
@@ -105,8 +126,12 @@ ipcMain.handle("get-video-info", async (_, url) => {
   return new Promise((resolve, reject) => {
     let output = "";
     let errorOutput = "";
-    const args = ["--dump-json", "--no-playlist", ...cookieArgs(), url];
-    const proc = spawn(YTDLP, args);
+    const proc = spawn(YTDLP, [
+      "--dump-json",
+      "--no-playlist",
+      ...cookieArgs(),
+      url,
+    ]);
     proc.stdout.on("data", (d) => (output += d.toString()));
     proc.stderr.on("data", (d) => {
       errorOutput += d.toString();
@@ -195,10 +220,9 @@ ipcMain.handle("select-folder", async (event) => {
   return result.canceled ? null : result.filePaths[0];
 });
 
-// --- Get Downloads Path ---
-ipcMain.handle("get-downloads-path", () => {
-  return path.join(os.homedir(), "Downloads");
-});
+ipcMain.handle("get-downloads-path", () =>
+  path.join(os.homedir(), "Downloads"),
+);
 
 // --- Download ---
 ipcMain.handle(
@@ -206,36 +230,32 @@ ipcMain.handle(
   async (event, { url, formatId, container, savePath }) => {
     return new Promise((resolve, reject) => {
       const win = BrowserWindow.fromWebContents(event.sender);
-
       const args = [
         "-f",
         formatId,
         "--merge-output-format",
         container,
         "--ffmpeg-location",
-        "/opt/homebrew/bin",
+        FFMPEG_DIR,
         ...cookieArgs(),
         "-o",
         path.join(savePath, "%(title)s.%(ext)s"),
         "--newline",
         url,
       ];
-
       const proc = spawn(YTDLP, args);
       activeDownload = proc;
-
       proc.stdout.on("data", (data) => {
         const line = data.toString();
         console.log(line);
         const match = line.match(/\[download\]\s+([\d.]+)%/);
-        if (match) {
-          const percent = Math.round(parseFloat(match[1]));
-          win.webContents.send("download-progress", percent);
-        }
+        if (match)
+          win.webContents.send(
+            "download-progress",
+            Math.round(parseFloat(match[1])),
+          );
       });
-
       proc.stderr.on("data", (d) => console.error(d.toString()));
-
       proc.on("close", (code) => {
         activeDownload = null;
         if (code === 0) resolve();

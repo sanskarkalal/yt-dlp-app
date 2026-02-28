@@ -1,12 +1,51 @@
 {
   "name": "yt-dlp-app",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "main": "electron/main.js",
   "scripts": {
     "dev:vite": "vite",
     "dev": "concurrently \"npm run dev:vite\" \"wait-on http://localhost:5173 && NODE_ENV=development electron .\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.sanskar.yt-dlp-app",
+    "productName": "YT Downloader",
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "dependencies": {
     "react": "^18.3.1",
