@@ -5,13 +5,6 @@ const { spawn } = require("child_process");
 
 const YTDLP = "/opt/homebrew/bin/yt-dlp";
 const FFMPEG = "/opt/homebrew/bin/ffmpeg";
-const proc = spawn(YTDLP, [
-  "--dump-json",
-  "--no-playlist",
-  "--cookies-from-browser",
-  "chrome",
-  url,
-]);
 
 let activeDownload = null;
 
@@ -146,7 +139,7 @@ ipcMain.handle(
         "--merge-output-format",
         container,
         "--ffmpeg-location",
-        FFMPEG,
+        "/opt/homebrew/bin", // ← directory not the binary
         "--cookies-from-browser",
         "chrome",
         "-o",
@@ -154,7 +147,13 @@ ipcMain.handle(
         "--newline",
         url,
       ];
-      const proc = spawn(YTDLP, args);
+      const proc = spawn(YTDLP, [
+        "--dump-json",
+        "--no-playlist",
+        "--cookies-from-browser",
+        "chrome",
+        url,
+      ]);
       activeDownload = proc;
       proc.stdout.on("data", (data) => {
         const line = data.toString();
