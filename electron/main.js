@@ -1,12 +1,27 @@
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("path");
 const os = require("os");
+const fs = require("fs");
 const { spawn } = require("child_process");
 
 const YTDLP = "/opt/homebrew/bin/yt-dlp";
 const FFMPEG = "/opt/homebrew/bin/ffmpeg";
+const COOKIES_PATH = path.join(
+  os.homedir(),
+  "Documents",
+  "yt-dlp-app",
+  "cookies.txt",
+);
 
 let activeDownload = null;
+
+function cookiesExist() {
+  return fs.existsSync(COOKIES_PATH);
+}
+
+function cookieArgs() {
+  return cookiesExist() ? ["--cookies", COOKIES_PATH] : [];
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -30,21 +45,76 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, "../dist/index.html"));
   }
+
+  return win;
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  const win = createWindow();
+
+  // Auto-export cookies on first launch if not already done
+  if (!cookiesExist()) {
+    exportCookies(win);
+  }
+});
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
+// --- Export Cookies (one-time, triggers keychain prompt) ---
+function exportCookies(win) {
+  return new Promise((resolve) => {
+    console.log("[cookies] Exporting cookies from Chrome...");
+    const proc = spawn(YTDLP, [
+      "--cookies-from-browser",
+      "chrome",
+      "--cookies",
+      COOKIES_PATH,
+      "--skip-download",
+      "https://www.youtube.com/robots.txt",
+    ]);
+    proc.stderr.on("data", (d) => console.error("[cookies]", d.toString()));
+    proc.on("close", (code) => {
+      const success = code === 0 && cookiesExist();
+      console.log(
+        "[cookies] Export",
+        success ? "succeeded" : "failed",
+        "code:",
+        code,
+      );
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("cookies-status", success);
+      }
+      resolve(success);
+    });
+  });
+}
+
+// --- Check cookies status ---
+ipcMain.handle("get-cookies-status", () => cookiesExist());
+
+// --- Refresh cookies (user triggered) ---
+ipcMain.handle("export-cookies", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  return exportCookies(win);
+});
+
+// --- Get Video Info ---
 ipcMain.handle("get-video-info", async (_, url) => {
   return new Promise((resolve, reject) => {
     let output = "";
-    const proc = spawn(YTDLP, ["--dump-json", "--no-playlist", url]);
+    let errorOutput = "";
+    const args = ["--dump-json", "--no-playlist", ...cookieArgs(), url];
+    const proc = spawn(YTDLP, args);
     proc.stdout.on("data", (d) => (output += d.toString()));
-    proc.stderr.on("data", (d) => console.error(d.toString()));
+    proc.stderr.on("data", (d) => {
+      errorOutput += d.toString();
+      console.error(d.toString());
+    });
     proc.on("close", (code) => {
-      if (code !== 0) return reject(new Error("Failed to fetch video info"));
+      if (code !== 0)
+        return reject(new Error(`yt-dlp failed: ${errorOutput.slice(0, 300)}`));
       try {
         const data = JSON.parse(output);
         const seen = new Set();
@@ -115,6 +185,7 @@ ipcMain.handle("get-video-info", async (_, url) => {
   });
 });
 
+// --- Select Folder ---
 ipcMain.handle("select-folder", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showOpenDialog(win, {
@@ -124,37 +195,35 @@ ipcMain.handle("select-folder", async (event) => {
   return result.canceled ? null : result.filePaths[0];
 });
 
+// --- Get Downloads Path ---
 ipcMain.handle("get-downloads-path", () => {
   return path.join(os.homedir(), "Downloads");
 });
 
+// --- Download ---
 ipcMain.handle(
   "download",
   async (event, { url, formatId, container, savePath }) => {
     return new Promise((resolve, reject) => {
       const win = BrowserWindow.fromWebContents(event.sender);
+
       const args = [
         "-f",
         formatId,
         "--merge-output-format",
         container,
         "--ffmpeg-location",
-        "/opt/homebrew/bin", // ← directory not the binary
-        "--cookies-from-browser",
-        "chrome",
+        "/opt/homebrew/bin",
+        ...cookieArgs(),
         "-o",
         path.join(savePath, "%(title)s.%(ext)s"),
         "--newline",
         url,
       ];
-      const proc = spawn(YTDLP, [
-        "--dump-json",
-        "--no-playlist",
-        "--cookies-from-browser",
-        "chrome",
-        url,
-      ]);
+
+      const proc = spawn(YTDLP, args);
       activeDownload = proc;
+
       proc.stdout.on("data", (data) => {
         const line = data.toString();
         console.log(line);
@@ -164,7 +233,9 @@ ipcMain.handle(
           win.webContents.send("download-progress", percent);
         }
       });
+
       proc.stderr.on("data", (d) => console.error(d.toString()));
+
       proc.on("close", (code) => {
         activeDownload = null;
         if (code === 0) resolve();
@@ -174,6 +245,7 @@ ipcMain.handle(
   },
 );
 
+// --- Cancel Download ---
 ipcMain.handle("cancel-download", () => {
   if (activeDownload) {
     activeDownload.kill("SIGTERM");

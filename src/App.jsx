@@ -21,13 +21,22 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [done, setDone] = useState(false);
+  const [cookiesOk, setCookiesOk] = useState(null); // null = checking, true = ok, false = missing
+  const [exportingCookies, setExportingCookies] = useState(false);
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
 
+  // On mount: get downloads path, check cookie status, listen for cookie updates
   useEffect(() => {
     window.electronAPI.getDownloadsPath().then(setSavePath);
+    window.electronAPI.getCookiesStatus().then(setCookiesOk);
+    window.electronAPI.onCookiesStatus((ok) => {
+      setCookiesOk(ok);
+      setExportingCookies(false);
+    });
   }, []);
 
+  // Smooth progress animation
   useEffect(() => {
     const target = progress;
     const animate = () => {
@@ -44,6 +53,13 @@ export default function App() {
     animFrameRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animFrameRef.current);
   }, [progress]);
+
+  const refreshCookies = async () => {
+    setExportingCookies(true);
+    setCookiesOk(null);
+    await window.electronAPI.exportCookies();
+    // onCookiesStatus listener will update state when done
+  };
 
   const fetchInfo = async () => {
     if (!url.trim()) return;
@@ -121,6 +137,58 @@ export default function App() {
     (f) => f.format_id === selectedFormat,
   );
 
+  // Auth pill rendering
+  const AuthPill = () => {
+    if (exportingCookies || cookiesOk === null) {
+      return (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
+          <svg
+            className="animate-spin w-3 h-3 text-white/40"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8v8z"
+            />
+          </svg>
+          <span className="text-[11px] text-white/40">Auth...</span>
+        </div>
+      );
+    }
+    if (cookiesOk) {
+      return (
+        <button
+          onClick={refreshCookies}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors group"
+          title="Cookies active — click to refresh"
+        >
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span className="text-[11px] text-emerald-400">Auth OK</span>
+        </button>
+      );
+    }
+    return (
+      <button
+        onClick={refreshCookies}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
+        title="Click to authenticate with Chrome cookies"
+      >
+        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+        <span className="text-[11px] text-amber-400">Auth needed</span>
+      </button>
+    );
+  };
+
   return (
     <div
       className="h-screen w-screen bg-[#0a0a0f] text-white flex flex-col overflow-hidden"
@@ -151,11 +219,15 @@ export default function App() {
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" />
             </svg>
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className="text-base font-semibold tracking-tight">
               YT Downloader
             </h1>
             <p className="text-[11px] text-white/30">Powered by yt-dlp</p>
+          </div>
+          {/* Auth status pill — right side of header */}
+          <div style={{ WebkitAppRegion: "no-drag" }}>
+            <AuthPill />
           </div>
         </div>
 
@@ -269,7 +341,7 @@ export default function App() {
               )}
             </div>
           ) : (
-            /* Empty state — centred in full body */
+            /* Empty state */
             <div className="flex-1 flex flex-col items-center justify-center gap-3 text-white/20">
               <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/8 flex items-center justify-center">
                 <svg
@@ -347,9 +419,6 @@ export default function App() {
                       </option>
                       <option value="webm" className="bg-[#1a1a2e]">
                         WebM
-                      </option>
-                      <option value="mov" className="bg-[#1a1a2e]">
-                        MOV
                       </option>
                     </select>
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
