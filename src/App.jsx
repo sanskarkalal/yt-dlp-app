@@ -1,0 +1,447 @@
+import { useState, useRef, useEffect } from "react";
+
+const formatDuration = (seconds) => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0)
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
+
+export default function App() {
+  const [url, setUrl] = useState("");
+  const [videoInfo, setVideoInfo] = useState(null);
+  const [selectedFormat, setSelectedFormat] = useState("");
+  const [selectedContainer, setSelectedContainer] = useState("mp4");
+  const [savePath, setSavePath] = useState("");
+  const [status, setStatus] = useState("");
+  const [progress, setProgress] = useState(0);
+  const [smoothProgress, setSmoothProgress] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [done, setDone] = useState(false);
+  const progressRef = useRef(0);
+  const animFrameRef = useRef(null);
+
+  // Smooth progress animation
+  useEffect(() => {
+    const target = progress;
+    const animate = () => {
+      progressRef.current += (target - progressRef.current) * 0.08;
+      setSmoothProgress(parseFloat(progressRef.current.toFixed(2)));
+      if (Math.abs(progressRef.current - target) > 0.1) {
+        animFrameRef.current = requestAnimationFrame(animate);
+      } else {
+        progressRef.current = target;
+        setSmoothProgress(target);
+      }
+    };
+    cancelAnimationFrame(animFrameRef.current);
+    animFrameRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animFrameRef.current);
+  }, [progress]);
+
+  const fetchInfo = async () => {
+    if (!url.trim()) return;
+    setLoading(true);
+    setStatus("Fetching video info...");
+    setVideoInfo(null);
+    setDone(false);
+    setProgress(0);
+    setSmoothProgress(0);
+    progressRef.current = 0;
+    try {
+      const info = await window.electronAPI.getVideoInfo(url);
+      setVideoInfo(info);
+      if (info.formats?.length > 0)
+        setSelectedFormat(info.formats[0].format_id);
+      setStatus("");
+    } catch (err) {
+      setStatus("Error: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const pickFolder = async () => {
+    const path = await window.electronAPI.selectFolder();
+    if (path) setSavePath(path);
+  };
+
+  const startDownload = async () => {
+    if (!url || !selectedFormat || !savePath) {
+      setStatus("Please fill in all fields");
+      return;
+    }
+    setProgress(0);
+    setSmoothProgress(0);
+    progressRef.current = 0;
+    setDone(false);
+    setDownloading(true);
+    setStatus("Starting download...");
+
+    window.electronAPI.onProgress((percent) => {
+      setProgress(percent);
+      setStatus(`Downloading...`);
+    });
+
+    try {
+      await window.electronAPI.download({
+        url,
+        formatId: selectedFormat,
+        container: selectedContainer,
+        savePath,
+      });
+      setProgress(100);
+      setDone(true);
+      setStatus("Download complete!");
+    } catch (err) {
+      if (err.message.includes("cancel")) {
+        setStatus("Download cancelled");
+      } else {
+        setStatus("Error: " + err.message);
+      }
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const cancelDownload = async () => {
+    await window.electronAPI.cancelDownload();
+    setDownloading(false);
+    setProgress(0);
+    setSmoothProgress(0);
+    progressRef.current = 0;
+    setStatus("Download cancelled");
+  };
+
+  const selectedFormatData = videoInfo?.formats?.find(
+    (f) => f.format_id === selectedFormat,
+  );
+
+  return (
+    <div
+      className="min-h-screen bg-[#0a0a0f] text-white flex flex-col"
+      style={{ fontFamily: "'Inter', system-ui, sans-serif" }}
+    >
+      {/* Ambient background */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute -top-40 -left-40 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl" />
+        <div className="absolute -top-20 -right-20 w-80 h-80 bg-pink-600/8 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-1/2 w-96 h-64 bg-blue-600/6 rounded-full blur-3xl" />
+      </div>
+
+      <div className="relative z-10 flex-1 flex flex-col max-w-xl mx-auto w-full px-6 py-10 gap-6">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center shadow-lg shadow-violet-500/30">
+            <svg
+              className="w-4 h-4 text-white"
+              fill="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">
+              YT Downloader
+            </h1>
+            <p className="text-xs text-white/30">Powered by yt-dlp</p>
+          </div>
+        </div>
+
+        {/* URL Input */}
+        <div className="relative group">
+          <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-violet-500/20 to-pink-500/20 blur opacity-0 group-focus-within:opacity-100 transition-opacity duration-300" />
+          <div className="relative flex gap-2 bg-white/5 border border-white/10 rounded-xl p-1.5 backdrop-blur-sm focus-within:border-white/20 transition-colors">
+            <input
+              type="text"
+              placeholder="Paste YouTube URL..."
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && fetchInfo()}
+              className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-white/20 text-white"
+            />
+            <button
+              onClick={fetchInfo}
+              disabled={loading || !url.trim()}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-30"
+              style={{
+                background: "linear-gradient(135deg, #7c3aed, #db2777)",
+                boxShadow:
+                  loading || !url.trim()
+                    ? "none"
+                    : "0 0 20px rgba(124,58,237,0.4)",
+              }}
+            >
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <svg
+                    className="animate-spin w-3.5 h-3.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8z"
+                    />
+                  </svg>
+                  Fetching
+                </span>
+              ) : (
+                "Fetch"
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Video Card */}
+        {videoInfo && (
+          <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden backdrop-blur-sm">
+            <div className="flex gap-4 p-4">
+              {videoInfo.thumbnail && (
+                <div className="relative flex-shrink-0">
+                  <img
+                    src={videoInfo.thumbnail}
+                    alt="thumbnail"
+                    className="w-28 h-16 object-cover rounded-lg"
+                  />
+                  <div className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1 rounded font-mono">
+                    {formatDuration(videoInfo.duration)}
+                  </div>
+                </div>
+              )}
+              <div className="min-w-0 flex flex-col justify-center gap-1">
+                <p className="font-medium text-sm leading-snug line-clamp-2 text-white/90">
+                  {videoInfo.title}
+                </p>
+                <p className="text-white/40 text-xs">{videoInfo.uploader}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Format Options */}
+        {videoInfo && (
+          <div className="grid grid-cols-2 gap-3">
+            {/* Resolution */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                Resolution
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedFormat}
+                  onChange={(e) => setSelectedFormat(e.target.value)}
+                  className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
+                >
+                  {videoInfo.formats.map((f) => (
+                    <option
+                      key={f.format_id}
+                      value={f.format_id}
+                      className="bg-zinc-900"
+                    >
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Container */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                Container
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedContainer}
+                  onChange={(e) => setSelectedContainer(e.target.value)}
+                  className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
+                >
+                  <option value="mp4" className="bg-zinc-900">
+                    MP4
+                  </option>
+                  <option value="mkv" className="bg-zinc-900">
+                    MKV
+                  </option>
+                  <option value="webm" className="bg-zinc-900">
+                    WebM
+                  </option>
+                  <option value="mov" className="bg-zinc-900">
+                    MOV
+                  </option>
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Selected format detail pill */}
+        {selectedFormatData && (
+          <div className="flex gap-2 flex-wrap">
+            {selectedFormatData.resolution && (
+              <span className="text-[11px] px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/20 font-mono">
+                {selectedFormatData.resolution}
+              </span>
+            )}
+            {selectedFormatData.vbitrate && (
+              <span className="text-[11px] px-2.5 py-1 rounded-full bg-pink-500/15 text-pink-300 border border-pink-500/20 font-mono">
+                {selectedFormatData.vbitrate} kbps video
+              </span>
+            )}
+            {selectedFormatData.abitrate && (
+              <span className="text-[11px] px-2.5 py-1 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/20 font-mono">
+                {selectedFormatData.abitrate} kbps audio
+              </span>
+            )}
+            {selectedFormatData.fps && (
+              <span className="text-[11px] px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 font-mono">
+                {selectedFormatData.fps} fps
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Save Location */}
+        {videoInfo && (
+          <div className="space-y-2">
+            <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+              Save Location
+            </label>
+            <div className="flex gap-2">
+              <div className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/30 truncate font-mono">
+                {savePath || "No folder selected"}
+              </div>
+              <button
+                onClick={pickFolder}
+                className="px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm hover:bg-white/10 hover:border-white/20 transition-all duration-200 text-white/60"
+              >
+                Browse
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Download / Cancel Button */}
+        {videoInfo && (
+          <div className="flex gap-3">
+            {!downloading ? (
+              <button
+                onClick={startDownload}
+                disabled={!savePath || done}
+                className="flex-1 py-3.5 rounded-xl font-semibold text-sm transition-all duration-300 disabled:opacity-30 relative overflow-hidden"
+                style={{
+                  background: done
+                    ? "linear-gradient(135deg, #059669, #10b981)"
+                    : "linear-gradient(135deg, #7c3aed, #db2777)",
+                  boxShadow:
+                    !savePath || done
+                      ? "none"
+                      : "0 0 30px rgba(124,58,237,0.35)",
+                }}
+              >
+                {done ? "✓ Downloaded" : "Download"}
+              </button>
+            ) : (
+              <>
+                <button
+                  disabled
+                  className="flex-1 py-3.5 rounded-xl font-semibold text-sm opacity-60 relative overflow-hidden"
+                  style={{
+                    background: "linear-gradient(135deg, #7c3aed, #db2777)",
+                  }}
+                >
+                  Downloading...
+                </button>
+                <button
+                  onClick={cancelDownload}
+                  className="px-5 py-3.5 rounded-xl font-semibold text-sm bg-white/5 border border-white/10 hover:bg-red-500/20 hover:border-red-500/40 hover:text-red-400 transition-all duration-200 text-white/60"
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Progress Bar */}
+        {(downloading || done) && (
+          <div className="space-y-2">
+            <div className="relative h-1.5 bg-white/5 rounded-full overflow-hidden">
+              {/* Glow track */}
+              <div
+                className="absolute inset-y-0 left-0 rounded-full transition-none"
+                style={{
+                  width: `${smoothProgress}%`,
+                  background:
+                    "linear-gradient(90deg, #7c3aed, #db2777, #f59e0b)",
+                  boxShadow: "0 0 12px rgba(124,58,237,0.8)",
+                  transition: "width 0.1s linear",
+                }}
+              />
+              {/* Shimmer */}
+              {downloading && (
+                <div
+                  className="absolute inset-y-0 rounded-full animate-pulse"
+                  style={{
+                    width: `${smoothProgress}%`,
+                    background:
+                      "linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)",
+                  }}
+                />
+              )}
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-white/30">{status}</span>
+              <span className="text-xs font-mono text-white/50">
+                {smoothProgress.toFixed(1)}%
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
