@@ -5,9 +5,32 @@ const fs = require("fs");
 const { spawn } = require("child_process");
 
 const isWin = process.platform === "win32";
+const isMac = process.platform === "darwin";
 
-const YTDLP = isWin ? "yt-dlp" : "/opt/homebrew/bin/yt-dlp";
-const FFMPEG_DIR = isWin ? "" : "/opt/homebrew/bin";
+// --- Resolve bundled binary paths ---
+function getBinariesDir() {
+  if (app.isPackaged) {
+    // In packaged app, resources are in process.resourcesPath
+    return path.join(process.resourcesPath, "bin");
+  } else {
+    // In dev mode, use the resources folder in the project root
+    return path.join(__dirname, "..", "resources", "bin");
+  }
+}
+
+function getYtDlpPath() {
+  const binDir = getBinariesDir();
+  if (isWin) return path.join(binDir, "win", "yt-dlp.exe");
+  if (isMac) return path.join(binDir, "mac", "yt-dlp");
+  return path.join(binDir, "linux", "yt-dlp"); // future-proofing
+}
+
+function getFfmpegDir() {
+  const binDir = getBinariesDir();
+  if (isWin) return path.join(binDir, "win");
+  if (isMac) return path.join(binDir, "mac");
+  return path.join(binDir, "linux");
+}
 
 const COOKIES_PATH = path.join(
   os.homedir(),
@@ -24,6 +47,43 @@ function cookiesExist() {
 
 function cookieArgs() {
   return cookiesExist() ? ["--cookies", COOKIES_PATH] : [];
+}
+
+// --- Detect which browser to use for cookies ---
+function detectBrowser() {
+  if (!isWin) return "chrome"; // On Mac, always use chrome
+
+  const localAppData = process.env.LOCALAPPDATA || "";
+
+  const browsers = [
+    {
+      name: "chrome",
+      path: path.join(localAppData, "Google", "Chrome", "User Data"),
+    },
+    {
+      name: "brave",
+      path: path.join(
+        localAppData,
+        "BraveSoftware",
+        "Brave-Browser",
+        "User Data",
+      ),
+    },
+    {
+      name: "edge",
+      path: path.join(localAppData, "Microsoft", "Edge", "User Data"),
+    },
+  ];
+
+  for (const browser of browsers) {
+    if (fs.existsSync(browser.path)) {
+      console.log(`[cookies] Detected browser: ${browser.name}`);
+      return browser.name;
+    }
+  }
+
+  console.log("[cookies] No browser detected, defaulting to chrome");
+  return "chrome";
 }
 
 function createWindow() {
@@ -61,29 +121,53 @@ app.whenReady().then(() => {
     fs.mkdirSync(cookiesDir, { recursive: true });
   }
 
-  // Auto-export cookies on first launch if not already done
+  // Log binary paths for debugging
+  console.log("[bin] yt-dlp path:", getYtDlpPath());
+  console.log("[bin] ffmpeg dir:", getFfmpegDir());
+  console.log("[bin] yt-dlp exists:", fs.existsSync(getYtDlpPath()));
+
+  // Auto-export cookies on first launch
   if (!cookiesExist()) {
     exportCookies(win);
   }
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (!isMac) app.quit();
 });
 
-// --- Export Cookies (one-time, triggers keychain prompt) ---
+// --- Export Cookies ---
 function exportCookies(win) {
   return new Promise((resolve) => {
-    console.log("[cookies] Exporting cookies from Chrome...");
-    const proc = spawn(YTDLP, [
+    const browser = detectBrowser();
+    const ytDlp = getYtDlpPath();
+    console.log(`[cookies] Exporting cookies from ${browser}...`);
+    console.log(`[cookies] Using yt-dlp at: ${ytDlp}`);
+
+    const proc = spawn(ytDlp, [
       "--cookies-from-browser",
-      "chrome",
+      browser,
       "--cookies",
       COOKIES_PATH,
       "--skip-download",
       "https://www.youtube.com/robots.txt",
     ]);
-    proc.stderr.on("data", (d) => console.error("[cookies]", d.toString()));
+
+    let stderrOutput = "";
+    proc.stderr.on("data", (d) => {
+      const msg = d.toString();
+      stderrOutput += msg;
+      console.error("[cookies]", msg);
+    });
+
+    proc.on("error", (err) => {
+      console.error("[cookies] Failed to start yt-dlp:", err.message);
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("cookies-status", false);
+      }
+      resolve(false);
+    });
+
     proc.on("close", (code) => {
       const success = code === 0 && cookiesExist();
       console.log(
@@ -92,6 +176,9 @@ function exportCookies(win) {
         "code:",
         code,
       );
+      if (!success) {
+        console.error("[cookies] stderr:", stderrOutput.slice(0, 500));
+      }
       if (win && !win.isDestroyed()) {
         win.webContents.send("cookies-status", success);
       }
@@ -115,11 +202,15 @@ ipcMain.handle("get-video-info", async (_, url) => {
     let output = "";
     let errorOutput = "";
     const args = ["--dump-json", "--no-playlist", ...cookieArgs(), url];
-    const proc = spawn(YTDLP, args);
+    const proc = spawn(getYtDlpPath(), args);
+
     proc.stdout.on("data", (d) => (output += d.toString()));
     proc.stderr.on("data", (d) => {
       errorOutput += d.toString();
       console.error(d.toString());
+    });
+    proc.on("error", (err) => {
+      reject(new Error(`Failed to start yt-dlp: ${err.message}`));
     });
     proc.on("close", (code) => {
       if (code !== 0)
@@ -221,7 +312,8 @@ ipcMain.handle(
         formatId,
         "--merge-output-format",
         container,
-        ...(FFMPEG_DIR ? ["--ffmpeg-location", FFMPEG_DIR] : []),
+        "--ffmpeg-location",
+        getFfmpegDir(),
         ...cookieArgs(),
         "-o",
         path.join(savePath, "%(title)s.%(ext)s"),
@@ -229,7 +321,7 @@ ipcMain.handle(
         url,
       ];
 
-      const proc = spawn(YTDLP, args);
+      const proc = spawn(getYtDlpPath(), args);
       activeDownload = proc;
 
       proc.stdout.on("data", (data) => {
@@ -243,6 +335,11 @@ ipcMain.handle(
       });
 
       proc.stderr.on("data", (d) => console.error(d.toString()));
+
+      proc.on("error", (err) => {
+        activeDownload = null;
+        reject(new Error(`Failed to start yt-dlp: ${err.message}`));
+      });
 
       proc.on("close", (code) => {
         activeDownload = null;

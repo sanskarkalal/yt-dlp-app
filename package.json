@@ -1,51 +1,42 @@
 {
   "name": "yt-dlp-app",
-  "version": "2.0.0",
+  "version": "1.0.0",
   "main": "electron/main.js",
   "scripts": {
     "dev:vite": "vite",
-    "dev": "concurrently \"npm run dev:vite\" \"wait-on http://localhost:5173 && NODE_ENV=development electron .\"",
+    "dev": "concurrently \"npm run dev:vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "build": "vite build",
+    "preview": "vite preview",
     "dist": "npm run build && electron-builder",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:win": "npm run build && electron-builder --win"
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
   },
   "build": {
-    "appId": "com.sanskar.yt-dlp-app",
+    "appId": "com.ytdlp.app",
     "productName": "YT Downloader",
-    "files": [
-      "dist/**/*",
-      "electron/**/*"
-    ],
     "directories": {
       "output": "release"
     },
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "mac": {
-      "category": "public.app-category.utilities",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        }
-      ]
+      "target": "dmg",
+      "category": "public.app-category.utilities"
     },
     "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
+      "target": "nsis"
     },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ]
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -55,6 +46,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@tailwindcss/vite": "^4.0.0",
     "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "tailwindcss": "^4.0.0",
