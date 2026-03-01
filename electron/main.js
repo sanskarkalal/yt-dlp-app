@@ -77,7 +77,6 @@ function createWindow() {
 app.whenReady().then(() => {
   const win = createWindow();
 
-  // Ensure cookies directory exists
   const cookiesDir = path.dirname(COOKIES_PATH);
   if (!fs.existsSync(cookiesDir)) {
     fs.mkdirSync(cookiesDir, { recursive: true });
@@ -116,7 +115,6 @@ function openYouTubeLogin() {
         !navUrl.includes("accounts.google.com")
       ) {
         console.log("[auth] Logged in, extracting cookies...");
-
         try {
           const allSessionCookies =
             await loginWin.webContents.session.cookies.get({});
@@ -149,7 +147,6 @@ function openYouTubeLogin() {
 
           fs.writeFileSync(COOKIES_PATH, cookieLines.join("\n"));
           console.log("[auth] Cookies saved:", allCookies.length, "cookies");
-
           loginWin.close();
           resolve(true);
         } catch (err) {
@@ -160,9 +157,7 @@ function openYouTubeLogin() {
       }
     });
 
-    loginWin.on("closed", () => {
-      resolve(false);
-    });
+    loginWin.on("closed", () => resolve(false));
   });
 }
 
@@ -178,11 +173,9 @@ ipcMain.handle("open-youtube-login", async () => {
 // --- Check cookies status ---
 ipcMain.handle("get-cookies-status", () => cookiesExist());
 
-// --- Clear cookies (force re-login) ---
+// --- Clear cookies ---
 ipcMain.handle("clear-cookies", () => {
-  if (cookiesExist()) {
-    fs.unlinkSync(COOKIES_PATH);
-  }
+  if (cookiesExist()) fs.unlinkSync(COOKIES_PATH);
   return true;
 });
 
@@ -215,11 +208,7 @@ ipcMain.handle("get-video-info", async (_, url) => {
           errorOutput.includes("Sign in to confirm your age") ||
           errorOutput.includes("age-restricted") ||
           errorOutput.includes("inappropriate for some users");
-
-        if (isAgeRestricted) {
-          return reject(new Error("AGE_RESTRICTED"));
-        }
-
+        if (isAgeRestricted) return reject(new Error("AGE_RESTRICTED"));
         return reject(new Error(`yt-dlp failed: ${errorOutput.slice(0, 300)}`));
       }
       try {
@@ -281,7 +270,7 @@ ipcMain.handle("get-video-info", async (_, url) => {
         resolve({
           title: data.title,
           thumbnail: data.thumbnail,
-          thumbnails: data.thumbnails || [], // for highest-quality thumb download
+          thumbnails: data.thumbnails || [],
           duration: data.duration,
           uploader: data.uploader,
           formats,
@@ -304,9 +293,9 @@ ipcMain.handle("select-folder", async (event) => {
 });
 
 // --- Get Downloads Path ---
-ipcMain.handle("get-downloads-path", () => {
-  return path.join(os.homedir(), "Downloads");
-});
+ipcMain.handle("get-downloads-path", () =>
+  path.join(os.homedir(), "Downloads"),
+);
 
 // --- Download Thumbnail ---
 ipcMain.handle(
@@ -338,32 +327,77 @@ ipcMain.handle(
 // --- Download ---
 ipcMain.handle(
   "download",
-  async (event, { url, formatId, container, savePath, clipStart, clipEnd }) => {
+  async (
+    event,
+    {
+      url,
+      formatId,
+      container,
+      savePath,
+      clipStart,
+      clipEnd,
+      audioOnly,
+      audioQuality,
+    },
+  ) => {
     return new Promise((resolve, reject) => {
       const win = BrowserWindow.fromWebContents(event.sender);
 
-      const args = [
-        "-f",
-        formatId,
-        "--merge-output-format",
-        container,
-        "--ffmpeg-location",
-        getFfmpegDir(),
-        "--js-runtimes",
-        "node",
-        ...cookieArgs(),
-        ...(clipStart && clipEnd
-          ? [
-              "--download-sections",
-              `*${clipStart}-${clipEnd}`,
-              "--force-keyframes-at-cuts",
-            ]
-          : []),
-        "-o",
-        path.join(savePath, "%(title)s.%(ext)s"),
-        "--newline",
-        url,
-      ];
+      let args;
+
+      if (audioOnly) {
+        // Audio-only download
+        const quality = audioQuality || "192";
+        args = [
+          "-f",
+          "bestaudio/best",
+          "--extract-audio",
+          "--audio-format",
+          "mp3",
+          "--audio-quality",
+          `${quality}k`,
+          "--ffmpeg-location",
+          getFfmpegDir(),
+          "--js-runtimes",
+          "node",
+          ...cookieArgs(),
+          ...(clipStart && clipEnd
+            ? [
+                "--download-sections",
+                `*${clipStart}-${clipEnd}`,
+                "--force-keyframes-at-cuts",
+              ]
+            : []),
+          "-o",
+          path.join(savePath, "%(title)s.%(ext)s"),
+          "--newline",
+          url,
+        ];
+      } else {
+        // Video download
+        args = [
+          "-f",
+          formatId,
+          "--merge-output-format",
+          container,
+          "--ffmpeg-location",
+          getFfmpegDir(),
+          "--js-runtimes",
+          "node",
+          ...cookieArgs(),
+          ...(clipStart && clipEnd
+            ? [
+                "--download-sections",
+                `*${clipStart}-${clipEnd}`,
+                "--force-keyframes-at-cuts",
+              ]
+            : []),
+          "-o",
+          path.join(savePath, "%(title)s.%(ext)s"),
+          "--newline",
+          url,
+        ];
+      }
 
       const proc = spawn(getYtDlpPath(), args);
       activeDownload = proc;
@@ -379,12 +413,10 @@ ipcMain.handle(
       });
 
       proc.stderr.on("data", (d) => console.error(d.toString()));
-
       proc.on("error", (err) => {
         activeDownload = null;
         reject(new Error(`Failed to start yt-dlp: ${err.message}`));
       });
-
       proc.on("close", (code) => {
         activeDownload = null;
         if (code === 0) resolve();

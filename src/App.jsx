@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 const formatDuration = (seconds) => {
   const h = Math.floor(seconds / 3600);
@@ -10,6 +10,103 @@ const formatDuration = (seconds) => {
 };
 
 const isValidTime = (t) => /^(\d{1,2}:)?\d{1,2}:\d{2}$/.test(t.trim());
+
+// Convert "MM:SS" or "HH:MM:SS" to seconds
+const timeToSecs = (t) => {
+  if (!t || !isValidTime(t)) return null;
+  const parts = t.trim().split(":").map(Number);
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] * 3600 + parts[1] * 60 + parts[2];
+};
+
+// Convert seconds to "H:MM:SS" or "M:SS"
+const secsToTime = (s) => {
+  const totalSecs = Math.round(s);
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const sec = totalSecs % 60;
+  if (h > 0)
+    return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+};
+
+// Dual-thumb range slider component
+function RangeSlider({ min, max, startVal, endVal, onChange }) {
+  const trackRef = useRef(null);
+  const dragging = useRef(null); // "start" | "end" | null
+
+  const clamp = (v) => Math.max(min, Math.min(max, v));
+
+  const posFromEvent = (e) => {
+    const rect = trackRef.current.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    return clamp(min + ((clientX - rect.left) / rect.width) * (max - min));
+  };
+
+  const onMouseDown = (thumb) => (e) => {
+    e.preventDefault();
+    dragging.current = thumb;
+  };
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!dragging.current || !trackRef.current) return;
+      const val = posFromEvent(e);
+      if (dragging.current === "start") {
+        onChange(Math.min(val, endVal - 1), endVal);
+      } else {
+        onChange(startVal, Math.max(val, startVal + 1));
+      }
+    };
+    const onUp = () => {
+      dragging.current = null;
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onMove);
+    window.addEventListener("touchend", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onUp);
+    };
+  });
+
+  const startPct = ((startVal - min) / (max - min)) * 100;
+  const endPct = ((endVal - min) / (max - min)) * 100;
+
+  return (
+    <div
+      ref={trackRef}
+      className="relative h-5 flex items-center select-none cursor-default"
+    >
+      {/* Track background */}
+      <div className="absolute inset-x-0 h-1 rounded-full bg-white/10" />
+      {/* Active range */}
+      <div
+        className="absolute h-1 rounded-full"
+        style={{
+          left: `${startPct}%`,
+          width: `${endPct - startPct}%`,
+          background: "linear-gradient(90deg, #7c3aed, #db2777)",
+        }}
+      />
+      {/* Start thumb */}
+      <div
+        onMouseDown={onMouseDown("start")}
+        className="absolute w-4 h-4 rounded-full border-2 border-violet-400 bg-[#0a0a0f] cursor-grab active:cursor-grabbing shadow-lg"
+        style={{ left: `calc(${startPct}% - 8px)`, zIndex: 2 }}
+      />
+      {/* End thumb */}
+      <div
+        onMouseDown={onMouseDown("end")}
+        className="absolute w-4 h-4 rounded-full border-2 border-pink-400 bg-[#0a0a0f] cursor-grab active:cursor-grabbing shadow-lg"
+        style={{ left: `calc(${endPct}% - 8px)`, zIndex: 2 }}
+      />
+    </div>
+  );
+}
 
 export default function App() {
   const [url, setUrl] = useState("");
@@ -31,18 +128,28 @@ export default function App() {
   const [clipEnd, setClipEnd] = useState("");
   const [thumbDone, setThumbDone] = useState(false);
   const [thumbDownloading, setThumbDownloading] = useState(false);
+  const [audioOnly, setAudioOnly] = useState(false);
+  const [audioQuality, setAudioQuality] = useState("192");
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
+
+  // Derived slider values (seconds)
+  const duration = videoInfo?.duration || 0;
+  const sliderStart = timeToSecs(clipStart) ?? 0;
+  const sliderEnd = timeToSecs(clipEnd) ?? duration;
+
+  const handleSliderChange = useCallback((newStart, newEnd) => {
+    setClipStart(secsToTime(newStart));
+    setClipEnd(secsToTime(newEnd));
+    setDone(false);
+  }, []);
 
   useEffect(() => {
     window.electronAPI.getDownloadsPath().then(setSavePath);
     window.electronAPI.getCookiesStatus().then(setCookiesOk);
-    window.electronAPI.onCookiesStatus((ok) => {
-      setCookiesOk(ok);
-    });
+    window.electronAPI.onCookiesStatus((ok) => setCookiesOk(ok));
   }, []);
 
-  // Smooth progress animation
   useEffect(() => {
     const target = progress;
     const animate = () => {
@@ -119,8 +226,12 @@ export default function App() {
   };
 
   const startDownload = async () => {
-    if (!url || !selectedFormat || !savePath) {
+    if (!url || !savePath) {
       setStatus("Please fill in all fields");
+      return;
+    }
+    if (!audioOnly && !selectedFormat) {
+      setStatus("Please select a format");
       return;
     }
     if (
@@ -157,10 +268,18 @@ export default function App() {
         savePath,
         clipStart: clipStart.trim() || null,
         clipEnd: clipEnd.trim() || null,
+        audioOnly,
+        audioQuality,
       });
       setProgress(100);
       setDone(true);
-      setStatus(clipStart ? "Clip downloaded!" : "Download complete!");
+      setStatus(
+        audioOnly
+          ? "Audio downloaded!"
+          : clipStart
+            ? "Clip downloaded!"
+            : "Download complete!",
+      );
     } catch (err) {
       setStatus(
         err.message.includes("cancel")
@@ -212,7 +331,6 @@ export default function App() {
     (f) => f.format_id === selectedFormat,
   );
 
-  // Auth pill
   const AuthPill = () => {
     if (cookiesOk) {
       return (
@@ -242,14 +360,12 @@ export default function App() {
       className="h-screen w-screen bg-[#0a0a0f] text-white flex flex-col overflow-hidden"
       style={{ fontFamily: "'Inter', system-ui, sans-serif" }}
     >
-      {/* Ambient blobs */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-40 -left-40 w-[500px] h-[500px] bg-violet-600/10 rounded-full blur-3xl" />
         <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-pink-600/8 rounded-full blur-3xl" />
         <div className="absolute bottom-0 left-1/3 w-[400px] h-[300px] bg-blue-600/6 rounded-full blur-3xl" />
       </div>
 
-      {/* macOS titlebar drag region */}
       <div
         className="h-9 w-full flex-shrink-0"
         style={{ WebkitAppRegion: "drag" }}
@@ -290,6 +406,21 @@ export default function App() {
               onKeyDown={(e) => e.key === "Enter" && fetchInfo()}
               className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-white/20 text-white"
             />
+            {!url && (
+              <button
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText();
+                    if (text.trim()) setUrl(text.trim());
+                  } catch {}
+                }}
+                className="px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20 transition-all duration-200"
+                title="Paste from clipboard"
+                style={{ fontSize: "13px", lineHeight: 1 }}
+              >
+                📋
+              </button>
+            )}
             <button
               onClick={() => fetchInfo()}
               disabled={loading || !url.trim()}
@@ -332,7 +463,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Age restriction login prompt */}
+        {/* Age restriction prompt */}
         {showLoginPrompt && (
           <div className="flex-shrink-0 bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-center gap-4">
             <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
@@ -361,7 +492,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Logging in state */}
         {loggingIn && (
           <div className="flex-shrink-0 bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
             <svg
@@ -418,8 +548,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Format detail pills */}
-              {selectedFormatData && (
+              {selectedFormatData && !audioOnly && (
                 <div className="flex gap-2 flex-wrap">
                   {selectedFormatData.resolution && (
                     <span className="text-[11px] px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/20 font-mono">
@@ -443,9 +572,16 @@ export default function App() {
                   )}
                 </div>
               )}
+
+              {audioOnly && (
+                <div className="flex gap-2 flex-wrap">
+                  <span className="text-[11px] px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/20 font-mono">
+                    MP3 · {audioQuality}kbps
+                  </span>
+                </div>
+              )}
             </div>
           ) : (
-            /* Empty state */
             <div className="flex-1 flex flex-col items-center justify-center gap-3 text-white/20">
               <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/8 flex items-center justify-center">
                 <svg
@@ -464,94 +600,186 @@ export default function App() {
 
           {/* Right — controls */}
           {videoInfo && (
-            <div className="flex-1 flex flex-col gap-5 min-w-0">
-              {/* Resolution + Container side by side */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                    Resolution
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={selectedFormat}
-                      onChange={(e) => setSelectedFormat(e.target.value)}
-                      className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
-                    >
-                      {videoInfo.formats.map((f) => (
-                        <option
-                          key={f.format_id}
-                          value={f.format_id}
-                          className="bg-[#1a1a2e]"
-                        >
-                          {f.label}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                    Container
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={selectedContainer}
-                      onChange={(e) => setSelectedContainer(e.target.value)}
-                      className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
-                    >
-                      <option value="mp4" className="bg-[#1a1a2e]">
-                        MP4
-                      </option>
-                      <option value="mkv" className="bg-[#1a1a2e]">
-                        MKV
-                      </option>
-                      <option value="webm" className="bg-[#1a1a2e]">
-                        WebM
-                      </option>
-                    </select>
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
+            <div className="flex-1 flex flex-col gap-4 min-w-0">
+              {/* Video / Audio toggle */}
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl p-1 self-start">
+                <button
+                  onClick={() => {
+                    setAudioOnly(false);
+                    setDone(false);
+                  }}
+                  className="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200"
+                  style={{
+                    background: !audioOnly
+                      ? "linear-gradient(135deg, #7c3aed, #db2777)"
+                      : "transparent",
+                    color: !audioOnly ? "white" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  Video
+                </button>
+                <button
+                  onClick={() => {
+                    setAudioOnly(true);
+                    setDone(false);
+                  }}
+                  className="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200"
+                  style={{
+                    background: audioOnly
+                      ? "linear-gradient(135deg, #7c3aed, #db2777)"
+                      : "transparent",
+                    color: audioOnly ? "white" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  Audio only
+                </button>
               </div>
+
+              {/* Video controls */}
+              {!audioOnly && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                      Resolution
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={selectedFormat}
+                        onChange={(e) => setSelectedFormat(e.target.value)}
+                        className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
+                      >
+                        {videoInfo.formats.map((f) => (
+                          <option
+                            key={f.format_id}
+                            value={f.format_id}
+                            className="bg-[#1a1a2e]"
+                          >
+                            {f.label}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 9l-7 7-7-7"
+                          />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                      Container
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={selectedContainer}
+                        onChange={(e) => setSelectedContainer(e.target.value)}
+                        className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
+                      >
+                        <option value="mp4" className="bg-[#1a1a2e]">
+                          MP4
+                        </option>
+                        <option value="mkv" className="bg-[#1a1a2e]">
+                          MKV
+                        </option>
+                        <option value="webm" className="bg-[#1a1a2e]">
+                          WebM
+                        </option>
+                      </select>
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 9l-7 7-7-7"
+                          />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Audio controls */}
+              {audioOnly && (
+                <div className="space-y-2">
+                  <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                    Quality
+                  </label>
+                  <div className="flex gap-2">
+                    {["128", "192", "320"].map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => setAudioQuality(q)}
+                        className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-200 border"
+                        style={{
+                          background:
+                            audioQuality === q
+                              ? "linear-gradient(135deg, #7c3aed33, #db277733)"
+                              : "rgba(255,255,255,0.03)",
+                          borderColor:
+                            audioQuality === q
+                              ? "rgba(124,58,237,0.5)"
+                              : "rgba(255,255,255,0.1)",
+                          color:
+                            audioQuality === q
+                              ? "white"
+                              : "rgba(255,255,255,0.4)",
+                        }}
+                      >
+                        {q}k
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Clip section */}
               <div className="space-y-2">
                 <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
                   Clip{" "}
                   <span className="normal-case font-normal text-white/20">
-                    (optional — leave blank for full video)
+                    (optional)
                   </span>
                 </label>
+
+                {/* Dual-thumb slider */}
+                {duration > 0 && (
+                  <div className="px-1 pt-1 pb-2">
+                    <RangeSlider
+                      min={0}
+                      max={duration}
+                      startVal={sliderStart}
+                      endVal={sliderEnd}
+                      onChange={handleSliderChange}
+                    />
+                    <div className="flex justify-between mt-1">
+                      <span className="text-[10px] text-white/20 font-mono">
+                        0:00
+                      </span>
+                      <span className="text-[10px] text-white/20 font-mono">
+                        {formatDuration(duration)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Text inputs */}
                 <div className="grid grid-cols-2 gap-3">
                   <input
                     type="text"
@@ -561,7 +789,7 @@ export default function App() {
                       setClipStart(e.target.value);
                       setDone(false);
                     }}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors text-white/80 placeholder:text-white/20 font-mono"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-violet-500/50 transition-colors text-white/80 placeholder:text-white/20 font-mono"
                   />
                   <input
                     type="text"
@@ -571,7 +799,7 @@ export default function App() {
                       setClipEnd(e.target.value);
                       setDone(false);
                     }}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors text-white/80 placeholder:text-white/20 font-mono"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-violet-500/50 transition-colors text-white/80 placeholder:text-white/20 font-mono"
                   />
                 </div>
               </div>
@@ -675,9 +903,11 @@ export default function App() {
                     >
                       {done
                         ? "✓ Downloaded"
-                        : clipStart && clipEnd
-                          ? "Download Clip"
-                          : "Download"}
+                        : audioOnly
+                          ? "Download MP3"
+                          : clipStart && clipEnd
+                            ? "Download Clip"
+                            : "Download"}
                     </button>
 
                     {/* Thumbnail button */}
@@ -772,7 +1002,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* Status (non-download states) */}
               {!downloading && !done && status && (
                 <p className="text-xs text-center text-white/30">{status}</p>
               )}
