@@ -47,7 +47,35 @@ function cookiesExist() {
 function cookieArgs() {
   return cookiesExist() ? ["--cookies", COOKIES_PATH] : [];
 }
+function ensureExecutable(filePath) {
+  try {
+    if (process.platform !== "win32" && fs.existsSync(filePath)) {
+      fs.chmodSync(filePath, 0o755);
+    }
+  } catch (e) {
+    console.warn("[bin] chmod failed:", e.message);
+  }
+}
 
+function sanityCheckBinaries() {
+  const yt = getYtDlpPath();
+  const ffDir = getFfmpegDir();
+
+  console.log("[bin] app.isPackaged:", app.isPackaged);
+  console.log("[bin] resourcesPath:", process.resourcesPath);
+
+  console.log("[bin] yt-dlp path:", yt);
+  console.log("[bin] yt-dlp exists:", fs.existsSync(yt));
+  ensureExecutable(yt);
+
+  const ff = path.join(
+    ffDir,
+    process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg",
+  );
+  console.log("[bin] ffmpeg path:", ff);
+  console.log("[bin] ffmpeg exists:", fs.existsSync(ff));
+  ensureExecutable(ff);
+}
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
@@ -73,20 +101,15 @@ function createWindow() {
 
   return mainWindow;
 }
-
 app.whenReady().then(() => {
-  const win = createWindow();
+  createWindow();
 
   // Ensure cookies directory exists
   const cookiesDir = path.dirname(COOKIES_PATH);
-  if (!fs.existsSync(cookiesDir)) {
-    fs.mkdirSync(cookiesDir, { recursive: true });
-  }
+  if (!fs.existsSync(cookiesDir)) fs.mkdirSync(cookiesDir, { recursive: true });
 
-  console.log("[bin] yt-dlp path:", getYtDlpPath());
-  console.log("[bin] yt-dlp exists:", fs.existsSync(getYtDlpPath()));
+  sanityCheckBinaries();
 });
-
 app.on("window-all-closed", () => {
   if (!isMac) app.quit();
 });

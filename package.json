@@ -36,7 +36,8 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "resources/**/*"
     ]
   },
   "dependencies": {
