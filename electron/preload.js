@@ -7,7 +7,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   download: (opts) => ipcRenderer.invoke("download", opts),
   cancelDownload: () => ipcRenderer.invoke("cancel-download"),
   getCookiesStatus: () => ipcRenderer.invoke("get-cookies-status"),
-  exportCookies: () => ipcRenderer.invoke("export-cookies"),
+  openYouTubeLogin: () => ipcRenderer.invoke("open-youtube-login"),
+  clearCookies: () => ipcRenderer.invoke("clear-cookies"),
   onProgress: (cb) => {
     ipcRenderer.removeAllListeners("download-progress");
     ipcRenderer.on("download-progress", (_, percent) => cb(percent));

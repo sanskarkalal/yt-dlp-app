@@ -21,18 +21,18 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [done, setDone] = useState(false);
-  const [cookiesOk, setCookiesOk] = useState(null); // null = checking, true = ok, false = missing
-  const [exportingCookies, setExportingCookies] = useState(false);
+  const [cookiesOk, setCookiesOk] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [pendingUrl, setPendingUrl] = useState(null);
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
 
-  // On mount: get downloads path, check cookie status, listen for cookie updates
   useEffect(() => {
     window.electronAPI.getDownloadsPath().then(setSavePath);
     window.electronAPI.getCookiesStatus().then(setCookiesOk);
     window.electronAPI.onCookiesStatus((ok) => {
       setCookiesOk(ok);
-      setExportingCookies(false);
     });
   }, []);
 
@@ -54,15 +54,8 @@ export default function App() {
     return () => cancelAnimationFrame(animFrameRef.current);
   }, [progress]);
 
-  const refreshCookies = async () => {
-    setExportingCookies(true);
-    setCookiesOk(null);
-    await window.electronAPI.exportCookies();
-    // onCookiesStatus listener will update state when done
-  };
-
-  const fetchInfo = async () => {
-    if (!url.trim()) return;
+  const fetchInfo = async (urlToFetch = url) => {
+    if (!urlToFetch.trim()) return;
     setLoading(true);
     setStatus("Fetching video info...");
     setVideoInfo(null);
@@ -70,16 +63,46 @@ export default function App() {
     setProgress(0);
     setSmoothProgress(0);
     progressRef.current = 0;
+    setShowLoginPrompt(false);
     try {
-      const info = await window.electronAPI.getVideoInfo(url);
+      const info = await window.electronAPI.getVideoInfo(urlToFetch);
       setVideoInfo(info);
       if (info.formats?.length > 0)
         setSelectedFormat(info.formats[0].format_id);
       setStatus("");
     } catch (err) {
-      setStatus("Error: " + err.message);
+      if (err.message.includes("AGE_RESTRICTED")) {
+        // Show login prompt
+        setPendingUrl(urlToFetch);
+        setShowLoginPrompt(true);
+        setStatus("");
+      } else {
+        setStatus("Error: " + err.message);
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleYouTubeLogin = async () => {
+    setLoggingIn(true);
+    setShowLoginPrompt(false);
+    setStatus("Waiting for YouTube sign-in...");
+    try {
+      const success = await window.electronAPI.openYouTubeLogin();
+      if (success) {
+        setCookiesOk(true);
+        setStatus("Signed in! Retrying...");
+        // Retry fetching the video
+        await fetchInfo(pendingUrl);
+        setPendingUrl(null);
+      } else {
+        setStatus("Sign-in cancelled or failed.");
+      }
+    } catch (err) {
+      setStatus("Error: " + err.message);
+    } finally {
+      setLoggingIn(false);
     }
   };
 
@@ -137,55 +160,28 @@ export default function App() {
     (f) => f.format_id === selectedFormat,
   );
 
-  // Auth pill rendering
+  // Auth pill
   const AuthPill = () => {
-    if (exportingCookies || cookiesOk === null) {
-      return (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
-          <svg
-            className="animate-spin w-3 h-3 text-white/40"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8v8z"
-            />
-          </svg>
-          <span className="text-[11px] text-white/40">Auth...</span>
-        </div>
-      );
-    }
     if (cookiesOk) {
       return (
         <button
-          onClick={refreshCookies}
+          onClick={async () => {
+            await window.electronAPI.clearCookies();
+            setCookiesOk(false);
+          }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors group"
-          title="Cookies active — click to refresh"
+          title="Signed in — click to sign out"
         >
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          <span className="text-[11px] text-emerald-400">Auth OK</span>
+          <span className="text-[11px] text-emerald-400">Signed in</span>
         </button>
       );
     }
     return (
-      <button
-        onClick={refreshCookies}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
-        title="Click to authenticate with Chrome cookies"
-      >
-        <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-        <span className="text-[11px] text-amber-400">Auth needed</span>
-      </button>
+      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
+        <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
+        <span className="text-[11px] text-white/30">Not signed in</span>
+      </div>
     );
   };
 
@@ -225,7 +221,6 @@ export default function App() {
             </h1>
             <p className="text-[11px] text-white/30">Powered by yt-dlp</p>
           </div>
-          {/* Auth status pill — right side of header */}
           <div style={{ WebkitAppRegion: "no-drag" }}>
             <AuthPill />
           </div>
@@ -244,7 +239,7 @@ export default function App() {
               className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-white/20 text-white"
             />
             <button
-              onClick={fetchInfo}
+              onClick={() => fetchInfo()}
               disabled={loading || !url.trim()}
               className="px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 disabled:opacity-30 flex items-center gap-2"
               style={{
@@ -284,6 +279,63 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {/* Age restriction login prompt */}
+        {showLoginPrompt && (
+          <div className="flex-shrink-0 bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-center gap-4">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+              <svg
+                className="w-4 h-4 text-amber-400"
+                fill="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 4a3 3 0 110 6 3 3 0 010-6zm0 8c-2 0-6 1-6 3v1h12v-1c0-2-4-3-6-3z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-300">
+                Age-restricted video
+              </p>
+              <p className="text-xs text-amber-400/70 mt-0.5">
+                Sign in to YouTube to access this video
+              </p>
+            </div>
+            <button
+              onClick={handleYouTubeLogin}
+              className="px-4 py-2 rounded-lg text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-black transition-colors flex-shrink-0"
+            >
+              Sign in to YouTube
+            </button>
+          </div>
+        )}
+
+        {/* Logging in state */}
+        {loggingIn && (
+          <div className="flex-shrink-0 bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
+            <svg
+              className="animate-spin w-4 h-4 text-white/40"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8v8z"
+              />
+            </svg>
+            <span className="text-sm text-white/40">
+              Waiting for YouTube sign-in...
+            </span>
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex-1 flex gap-8 min-h-0">
@@ -361,7 +413,7 @@ export default function App() {
           {/* Right — controls */}
           {videoInfo && (
             <div className="flex-1 flex flex-col gap-5 min-w-0">
-              {/* Resolution + Container side by side */}
+              {/* Resolution + Container */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
@@ -377,33 +429,31 @@ export default function App() {
                         <option
                           key={f.format_id}
                           value={f.format_id}
-                          className="bg-[#1a1a2e]"
+                          className="bg-[#0a0a0f]"
                         >
                           {f.label}
                         </option>
                       ))}
                     </select>
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </div>
+                    <svg
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 9l-7 7-7-7"
+                      />
+                    </svg>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                    Container
+                    Format
                   </label>
                   <div className="relative">
                     <select
@@ -411,63 +461,60 @@ export default function App() {
                       onChange={(e) => setSelectedContainer(e.target.value)}
                       className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
                     >
-                      <option value="mp4" className="bg-[#1a1a2e]">
+                      <option value="mp4" className="bg-[#0a0a0f]">
                         MP4
                       </option>
-                      <option value="mkv" className="bg-[#1a1a2e]">
-                        MKV
-                      </option>
-                      <option value="webm" className="bg-[#1a1a2e]">
+                      <option value="webm" className="bg-[#0a0a0f]">
                         WebM
                       </option>
+                      <option value="mkv" className="bg-[#0a0a0f]">
+                        MKV
+                      </option>
                     </select>
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </div>
+                    <svg
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 9l-7 7-7-7"
+                      />
+                    </svg>
                   </div>
                 </div>
               </div>
 
-              {/* Save Location */}
+              {/* Save path */}
               <div className="space-y-2">
                 <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                  Save Location
+                  Save to
                 </label>
-                <div
+                <button
                   onClick={pickFolder}
-                  className="w-full flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 cursor-pointer hover:bg-white/8 hover:border-white/20 transition-all duration-200 group"
+                  className="w-full flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/50 hover:border-white/20 hover:text-white/70 transition-colors"
                 >
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500/30 to-orange-500/30 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
-                    <svg
-                      className="w-4 h-4 text-amber-400"
-                      fill="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
-                    </svg>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] text-white/25 mb-0.5 uppercase tracking-wider">
-                      Save to
-                    </p>
-                    <p className="text-sm text-white/70 truncate font-mono">
-                      {savePath || "Click to choose folder"}
-                    </p>
-                  </div>
                   <svg
-                    className="w-4 h-4 text-white/20 group-hover:text-white/50 transition-colors flex-shrink-0"
+                    className="w-4 h-4 flex-shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
+                    />
+                  </svg>
+                  <span className="truncate text-left">
+                    {savePath || "Choose folder..."}
+                  </span>
+                  <svg
+                    className="w-4 h-4 flex-shrink-0 ml-auto text-white/20"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -479,7 +526,7 @@ export default function App() {
                       d="M9 5l7 7-7 7"
                     />
                   </svg>
-                </div>
+                </button>
               </div>
 
               {/* Spacer */}
@@ -539,29 +586,19 @@ export default function App() {
                     {done ? "✓ Downloaded" : "Download"}
                   </button>
                 ) : (
-                  <>
-                    <button
-                      disabled
-                      className="flex-1 py-3.5 rounded-xl font-semibold text-sm opacity-50"
-                      style={{
-                        background: "linear-gradient(135deg, #7c3aed, #db2777)",
-                      }}
-                    >
-                      Downloading...
-                    </button>
-                    <button
-                      onClick={cancelDownload}
-                      className="px-6 py-3.5 rounded-xl font-semibold text-sm transition-all duration-200"
-                      style={{
-                        background: "linear-gradient(135deg, #dc2626, #b91c1c)",
-                        boxShadow: "0 0 20px rgba(220,38,38,0.4)",
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </>
+                  <button
+                    onClick={cancelDownload}
+                    className="flex-1 py-3.5 rounded-xl font-semibold text-sm bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+                  >
+                    Cancel
+                  </button>
                 )}
               </div>
+
+              {/* Status (non-download states) */}
+              {!downloading && !done && status && (
+                <p className="text-xs text-center text-white/30">{status}</p>
+              )}
             </div>
           )}
         </div>

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, session } = require("electron");
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
@@ -10,10 +10,8 @@ const isMac = process.platform === "darwin";
 // --- Resolve bundled binary paths ---
 function getBinariesDir() {
   if (app.isPackaged) {
-    // In packaged app, resources are in process.resourcesPath
     return path.join(process.resourcesPath, "bin");
   } else {
-    // In dev mode, use the resources folder in the project root
     return path.join(__dirname, "..", "resources", "bin");
   }
 }
@@ -22,7 +20,7 @@ function getYtDlpPath() {
   const binDir = getBinariesDir();
   if (isWin) return path.join(binDir, "win", "yt-dlp.exe");
   if (isMac) return path.join(binDir, "mac", "yt-dlp");
-  return path.join(binDir, "linux", "yt-dlp"); // future-proofing
+  return path.join(binDir, "linux", "yt-dlp");
 }
 
 function getFfmpegDir() {
@@ -40,6 +38,7 @@ const COOKIES_PATH = path.join(
 );
 
 let activeDownload = null;
+let mainWindow = null;
 
 function cookiesExist() {
   return fs.existsSync(COOKIES_PATH);
@@ -49,47 +48,8 @@ function cookieArgs() {
   return cookiesExist() ? ["--cookies", COOKIES_PATH] : [];
 }
 
-// --- Detect which browser to use for cookies ---
-function detectBrowser() {
-  if (!isWin) return "chrome"; // On Mac, always use chrome
-
-  const localAppData = process.env.LOCALAPPDATA || "";
-
-  // Brave is preferred on Windows because Chrome 127+ uses app-bound
-  // encryption that blocks external cookie access (DPAPI issue)
-  const browsers = [
-    {
-      name: "brave",
-      path: path.join(
-        localAppData,
-        "BraveSoftware",
-        "Brave-Browser",
-        "User Data",
-      ),
-    },
-    {
-      name: "chrome",
-      path: path.join(localAppData, "Google", "Chrome", "User Data"),
-    },
-    {
-      name: "edge",
-      path: path.join(localAppData, "Microsoft", "Edge", "User Data"),
-    },
-  ];
-
-  for (const browser of browsers) {
-    if (fs.existsSync(browser.path)) {
-      console.log(`[cookies] Detected browser: ${browser.name}`);
-      return browser.name;
-    }
-  }
-
-  console.log("[cookies] No browser detected, defaulting to chrome");
-  return "chrome";
-}
-
 function createWindow() {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1100,
     height: 720,
     minWidth: 900,
@@ -105,13 +65,13 @@ function createWindow() {
   });
 
   if (process.env.NODE_ENV === "development") {
-    win.loadURL("http://localhost:5173");
-    win.webContents.openDevTools();
+    mainWindow.loadURL("http://localhost:5173");
+    mainWindow.webContents.openDevTools();
   } else {
-    win.loadFile(path.join(__dirname, "../dist/index.html"));
+    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 
-  return win;
+  return mainWindow;
 }
 
 app.whenReady().then(() => {
@@ -123,79 +83,112 @@ app.whenReady().then(() => {
     fs.mkdirSync(cookiesDir, { recursive: true });
   }
 
-  // Log binary paths for debugging
   console.log("[bin] yt-dlp path:", getYtDlpPath());
-  console.log("[bin] ffmpeg dir:", getFfmpegDir());
   console.log("[bin] yt-dlp exists:", fs.existsSync(getYtDlpPath()));
-
-  // Auto-export cookies on first launch
-  if (!cookiesExist()) {
-    exportCookies(win);
-  }
 });
 
 app.on("window-all-closed", () => {
   if (!isMac) app.quit();
 });
 
-// --- Export Cookies ---
-function exportCookies(win) {
+// --- YouTube Login Window ---
+function openYouTubeLogin() {
   return new Promise((resolve) => {
-    const browser = detectBrowser();
-    const ytDlp = getYtDlpPath();
-    console.log(`[cookies] Exporting cookies from ${browser}...`);
-    console.log(`[cookies] Using yt-dlp at: ${ytDlp}`);
-
-    const proc = spawn(ytDlp, [
-      "--cookies-from-browser",
-      browser,
-      "--cookies",
-      COOKIES_PATH,
-      "--skip-download",
-      "https://www.youtube.com/robots.txt",
-    ]);
-
-    let stderrOutput = "";
-    proc.stderr.on("data", (d) => {
-      const msg = d.toString();
-      stderrOutput += msg;
-      console.error("[cookies]", msg);
+    const loginWin = new BrowserWindow({
+      width: 500,
+      height: 650,
+      title: "Sign in to YouTube",
+      parent: mainWindow,
+      modal: true,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
     });
 
-    proc.on("error", (err) => {
-      console.error("[cookies] Failed to start yt-dlp:", err.message);
-      if (win && !win.isDestroyed()) {
-        win.webContents.send("cookies-status", false);
+    loginWin.loadURL(
+      "https://accounts.google.com/signin/v2/identifier?service=youtube",
+    );
+
+    // Watch for navigation to YouTube after successful login
+    loginWin.webContents.on("did-navigate", async (event, navUrl) => {
+      if (
+        navUrl.includes("youtube.com") &&
+        !navUrl.includes("accounts.google.com")
+      ) {
+        console.log("[auth] Logged in, extracting cookies...");
+
+        try {
+          // Get all cookies from the login session
+          const cookies = await loginWin.webContents.session.cookies.get({
+            domain: ".youtube.com",
+          });
+
+          // Also get google cookies
+          const googleCookies = await loginWin.webContents.session.cookies.get({
+            domain: ".google.com",
+          });
+
+          const allCookies = [...cookies, ...googleCookies];
+
+          // Write cookies in Netscape format that yt-dlp understands
+          const cookieLines = [
+            "# Netscape HTTP Cookie File",
+            "# This file was generated by yt-dlp-app",
+            "",
+          ];
+
+          for (const cookie of allCookies) {
+            const domain = cookie.domain.startsWith(".")
+              ? cookie.domain
+              : "." + cookie.domain;
+            const flag = cookie.domain.startsWith(".") ? "TRUE" : "FALSE";
+            const secure = cookie.secure ? "TRUE" : "FALSE";
+            const expiry = cookie.expirationDate
+              ? Math.floor(cookie.expirationDate)
+              : 0;
+            cookieLines.push(
+              `${domain}\t${flag}\t${cookie.path}\t${secure}\t${expiry}\t${cookie.name}\t${cookie.value}`,
+            );
+          }
+
+          fs.writeFileSync(COOKIES_PATH, cookieLines.join("\n"));
+          console.log("[auth] Cookies saved:", allCookies.length, "cookies");
+
+          loginWin.close();
+          resolve(true);
+        } catch (err) {
+          console.error("[auth] Failed to extract cookies:", err);
+          loginWin.close();
+          resolve(false);
+        }
       }
+    });
+
+    loginWin.on("closed", () => {
       resolve(false);
-    });
-
-    proc.on("close", (code) => {
-      const success = code === 0 && cookiesExist();
-      console.log(
-        "[cookies] Export",
-        success ? "succeeded" : "failed",
-        "code:",
-        code,
-      );
-      if (!success) {
-        console.error("[cookies] stderr:", stderrOutput.slice(0, 500));
-      }
-      if (win && !win.isDestroyed()) {
-        win.webContents.send("cookies-status", success);
-      }
-      resolve(success);
     });
   });
 }
 
+// --- IPC: Open YouTube login ---
+ipcMain.handle("open-youtube-login", async () => {
+  const success = await openYouTubeLogin();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("cookies-status", success);
+  }
+  return success;
+});
+
 // --- Check cookies status ---
 ipcMain.handle("get-cookies-status", () => cookiesExist());
 
-// --- Refresh cookies (user triggered) ---
-ipcMain.handle("export-cookies", async (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  return exportCookies(win);
+// --- Clear cookies (force re-login) ---
+ipcMain.handle("clear-cookies", () => {
+  if (cookiesExist()) {
+    fs.unlinkSync(COOKIES_PATH);
+  }
+  return true;
 });
 
 // --- Get Video Info ---
@@ -203,7 +196,14 @@ ipcMain.handle("get-video-info", async (_, url) => {
   return new Promise((resolve, reject) => {
     let output = "";
     let errorOutput = "";
-    const args = ["--dump-json", "--no-playlist", ...cookieArgs(), url];
+    const args = [
+      "--dump-json",
+      "--no-playlist",
+      "--js-runtimes",
+      "node",
+      ...cookieArgs(),
+      url,
+    ];
     const proc = spawn(getYtDlpPath(), args);
 
     proc.stdout.on("data", (d) => (output += d.toString()));
@@ -215,8 +215,19 @@ ipcMain.handle("get-video-info", async (_, url) => {
       reject(new Error(`Failed to start yt-dlp: ${err.message}`));
     });
     proc.on("close", (code) => {
-      if (code !== 0)
+      if (code !== 0) {
+        // Check if it's an age restriction error
+        const isAgeRestricted =
+          errorOutput.includes("Sign in to confirm your age") ||
+          errorOutput.includes("age-restricted") ||
+          errorOutput.includes("inappropriate for some users");
+
+        if (isAgeRestricted) {
+          return reject(new Error("AGE_RESTRICTED"));
+        }
+
         return reject(new Error(`yt-dlp failed: ${errorOutput.slice(0, 300)}`));
+      }
       try {
         const data = JSON.parse(output);
         const seen = new Set();
@@ -316,6 +327,8 @@ ipcMain.handle(
         container,
         "--ffmpeg-location",
         getFfmpegDir(),
+        "--js-runtimes",
+        "node",
         ...cookieArgs(),
         "-o",
         path.join(savePath, "%(title)s.%(ext)s"),
