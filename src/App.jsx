@@ -366,12 +366,7 @@ export default function App() {
         <div className="absolute bottom-0 left-1/3 w-[400px] h-[300px] bg-blue-600/6 rounded-full blur-3xl" />
       </div>
 
-      <div
-        className="h-9 w-full flex-shrink-0"
-        style={{ WebkitAppRegion: "drag" }}
-      />
-
-      <div className="relative z-10 flex-1 flex flex-col px-8 pb-8 gap-5 overflow-hidden">
+      <div className="relative z-10 flex-1 flex flex-col px-8 pt-8 pb-8 gap-5 overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-3 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center shadow-lg shadow-violet-500/30 flex-shrink-0">
@@ -406,31 +401,25 @@ export default function App() {
               onKeyDown={(e) => e.key === "Enter" && fetchInfo()}
               className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-white/20 text-white"
             />
-            {!url && (
-              <button
-                onClick={async () => {
+            <button
+              onClick={async () => {
+                if (!url.trim()) {
                   try {
                     const text = await navigator.clipboard.readText();
-                    if (text.trim()) setUrl(text.trim());
+                    if (text.trim()) {
+                      setUrl(text.trim());
+                      await fetchInfo(text.trim());
+                    }
                   } catch {}
-                }}
-                className="px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20 transition-all duration-200"
-                title="Paste from clipboard"
-                style={{ fontSize: "13px", lineHeight: 1 }}
-              >
-                📋
-              </button>
-            )}
-            <button
-              onClick={() => fetchInfo()}
-              disabled={loading || !url.trim()}
+                } else {
+                  fetchInfo();
+                }
+              }}
+              disabled={loading}
               className="px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 disabled:opacity-30 flex items-center gap-2"
               style={{
                 background: "linear-gradient(135deg, #7c3aed, #db2777)",
-                boxShadow:
-                  loading || !url.trim()
-                    ? "none"
-                    : "0 0 20px rgba(124,58,237,0.4)",
+                boxShadow: loading ? "none" : "0 0 20px rgba(124,58,237,0.4)",
               }}
             >
               {loading ? (
@@ -456,8 +445,10 @@ export default function App() {
                   </svg>
                   Fetching
                 </>
-              ) : (
+              ) : url.trim() ? (
                 "Fetch"
+              ) : (
+                "📋 Paste"
               )}
             </button>
           </div>

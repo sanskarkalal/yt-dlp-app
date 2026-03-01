@@ -50,11 +50,12 @@ function cookieArgs() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 720,
-    minWidth: 900,
-    minHeight: 600,
-    titleBarStyle: "hiddenInset",
+    width: 1280,
+    height: 820,
+    minWidth: 960,
+    minHeight: 680,
+    titleBarStyle: "hidden",
+    trafficLightPosition: { x: -100, y: -100 },
     backgroundColor: "#0a0a0f",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
