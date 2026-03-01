@@ -29,7 +29,8 @@
     "mac": {
       "target": "dmg",
       "category": "public.app-category.utilities",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "hardenedRuntime": false
     },
     "win": {
       "target": "nsis"
@@ -45,7 +46,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^4.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "concurrently": "^9.0.0",
     "cross-env": "^7.0.3",
