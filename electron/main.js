@@ -47,35 +47,7 @@ function cookiesExist() {
 function cookieArgs() {
   return cookiesExist() ? ["--cookies", COOKIES_PATH] : [];
 }
-function ensureExecutable(filePath) {
-  try {
-    if (process.platform !== "win32" && fs.existsSync(filePath)) {
-      fs.chmodSync(filePath, 0o755);
-    }
-  } catch (e) {
-    console.warn("[bin] chmod failed:", e.message);
-  }
-}
 
-function sanityCheckBinaries() {
-  const yt = getYtDlpPath();
-  const ffDir = getFfmpegDir();
-
-  console.log("[bin] app.isPackaged:", app.isPackaged);
-  console.log("[bin] resourcesPath:", process.resourcesPath);
-
-  console.log("[bin] yt-dlp path:", yt);
-  console.log("[bin] yt-dlp exists:", fs.existsSync(yt));
-  ensureExecutable(yt);
-
-  const ff = path.join(
-    ffDir,
-    process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg",
-  );
-  console.log("[bin] ffmpeg path:", ff);
-  console.log("[bin] ffmpeg exists:", fs.existsSync(ff));
-  ensureExecutable(ff);
-}
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
@@ -101,15 +73,20 @@ function createWindow() {
 
   return mainWindow;
 }
+
 app.whenReady().then(() => {
-  createWindow();
+  const win = createWindow();
 
   // Ensure cookies directory exists
   const cookiesDir = path.dirname(COOKIES_PATH);
-  if (!fs.existsSync(cookiesDir)) fs.mkdirSync(cookiesDir, { recursive: true });
+  if (!fs.existsSync(cookiesDir)) {
+    fs.mkdirSync(cookiesDir, { recursive: true });
+  }
 
-  sanityCheckBinaries();
+  console.log("[bin] yt-dlp path:", getYtDlpPath());
+  console.log("[bin] yt-dlp exists:", fs.existsSync(getYtDlpPath()));
 });
+
 app.on("window-all-closed", () => {
   if (!isMac) app.quit();
 });
@@ -142,17 +119,15 @@ function openYouTubeLogin() {
         console.log("[auth] Logged in, extracting cookies...");
 
         try {
-          // Get all cookies from the login session
-          const cookies = await loginWin.webContents.session.cookies.get({
-            domain: ".youtube.com",
-          });
+          // Get all cookies from the session
+          const allSessionCookies =
+            await loginWin.webContents.session.cookies.get({});
 
-          // Also get google cookies
-          const googleCookies = await loginWin.webContents.session.cookies.get({
-            domain: ".google.com",
+          // Only keep YouTube and Google cookies
+          const allCookies = allSessionCookies.filter((c) => {
+            const d = c.domain.startsWith(".") ? c.domain : "." + c.domain;
+            return d.includes("youtube.com") || d.includes("google.com");
           });
-
-          const allCookies = [...cookies, ...googleCookies];
 
           // Write cookies in Netscape format that yt-dlp understands
           const cookieLines = [
@@ -162,16 +137,17 @@ function openYouTubeLogin() {
           ];
 
           for (const cookie of allCookies) {
+            if (!cookie.name || cookie.value === undefined) continue;
             const domain = cookie.domain.startsWith(".")
               ? cookie.domain
               : "." + cookie.domain;
-            const flag = cookie.domain.startsWith(".") ? "TRUE" : "FALSE";
             const secure = cookie.secure ? "TRUE" : "FALSE";
             const expiry = cookie.expirationDate
               ? Math.floor(cookie.expirationDate)
-              : 0;
+              : Math.floor(Date.now() / 1000) + 86400 * 365;
+            const cookiePath = cookie.path || "/";
             cookieLines.push(
-              `${domain}\t${flag}\t${cookie.path}\t${secure}\t${expiry}\t${cookie.name}\t${cookie.value}`,
+              `${domain}\tTRUE\t${cookiePath}\t${secure}\t${expiry}\t${cookie.name}\t${cookie.value}`,
             );
           }
 
