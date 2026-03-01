@@ -54,7 +54,8 @@ function createWindow() {
     height: 820,
     minWidth: 960,
     minHeight: 680,
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: "hidden",
+    trafficLightPosition: { x: -100, y: -100 },
     backgroundColor: "#0a0a0f",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -76,7 +77,6 @@ function createWindow() {
 
 app.whenReady().then(() => {
   const win = createWindow();
-  app.applicationMenu = null;
 
   const cookiesDir = path.dirname(COOKIES_PATH);
   if (!fs.existsSync(cookiesDir)) {
@@ -94,9 +94,6 @@ app.on("window-all-closed", () => {
 // --- YouTube Login Window ---
 function openYouTubeLogin() {
   return new Promise((resolve) => {
-    const { session } = require("electron");
-    const ytSession = session.fromPartition("persist:youtube", { cache: true });
-
     const loginWin = new BrowserWindow({
       width: 500,
       height: 650,
@@ -106,15 +103,8 @@ function openYouTubeLogin() {
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: false,
-        session: ytSession,
       },
     });
-
-    // Spoof user agent to look like a real Chrome browser
-    const ua =
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-    loginWin.webContents.setUserAgent(ua);
 
     loginWin.loadURL(
       "https://accounts.google.com/signin/v2/identifier?service=youtube",
@@ -127,7 +117,8 @@ function openYouTubeLogin() {
       ) {
         console.log("[auth] Logged in, extracting cookies...");
         try {
-          const allSessionCookies = await ytSession.cookies.get({});
+          const allSessionCookies =
+            await loginWin.webContents.session.cookies.get({});
 
           const allCookies = allSessionCookies.filter((c) => {
             const d = c.domain.startsWith(".") ? c.domain : "." + c.domain;
