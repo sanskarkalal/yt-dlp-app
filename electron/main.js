@@ -55,11 +55,9 @@ function detectBrowser() {
 
   const localAppData = process.env.LOCALAPPDATA || "";
 
+  // Brave is preferred on Windows because Chrome 127+ uses app-bound
+  // encryption that blocks external cookie access (DPAPI issue)
   const browsers = [
-    {
-      name: "chrome",
-      path: path.join(localAppData, "Google", "Chrome", "User Data"),
-    },
     {
       name: "brave",
       path: path.join(
@@ -68,6 +66,10 @@ function detectBrowser() {
         "Brave-Browser",
         "User Data",
       ),
+    },
+    {
+      name: "chrome",
+      path: path.join(localAppData, "Google", "Chrome", "User Data"),
     },
     {
       name: "edge",
