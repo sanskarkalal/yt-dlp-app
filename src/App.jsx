@@ -9,6 +9,8 @@ const formatDuration = (seconds) => {
   return `${m}:${String(s).padStart(2, "0")}`;
 };
 
+const isValidTime = (t) => /^(\d{1,2}:)?\d{1,2}:\d{2}$/.test(t.trim());
+
 export default function App() {
   const [url, setUrl] = useState("");
   const [videoInfo, setVideoInfo] = useState(null);
@@ -25,6 +27,10 @@ export default function App() {
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
   const [pendingUrl, setPendingUrl] = useState(null);
+  const [clipStart, setClipStart] = useState("");
+  const [clipEnd, setClipEnd] = useState("");
+  const [thumbDone, setThumbDone] = useState(false);
+  const [thumbDownloading, setThumbDownloading] = useState(false);
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
 
@@ -60,10 +66,13 @@ export default function App() {
     setStatus("Fetching video info...");
     setVideoInfo(null);
     setDone(false);
+    setThumbDone(false);
     setProgress(0);
     setSmoothProgress(0);
     progressRef.current = 0;
     setShowLoginPrompt(false);
+    setClipStart("");
+    setClipEnd("");
     try {
       const info = await window.electronAPI.getVideoInfo(urlToFetch);
       setVideoInfo(info);
@@ -72,7 +81,6 @@ export default function App() {
       setStatus("");
     } catch (err) {
       if (err.message.includes("AGE_RESTRICTED")) {
-        // Show login prompt
         setPendingUrl(urlToFetch);
         setShowLoginPrompt(true);
         setStatus("");
@@ -93,7 +101,6 @@ export default function App() {
       if (success) {
         setCookiesOk(true);
         setStatus("Signed in! Retrying...");
-        // Retry fetching the video
         await fetchInfo(pendingUrl);
         setPendingUrl(null);
       } else {
@@ -116,6 +123,22 @@ export default function App() {
       setStatus("Please fill in all fields");
       return;
     }
+    if (
+      (clipStart && !isValidTime(clipStart)) ||
+      (clipEnd && !isValidTime(clipEnd))
+    ) {
+      setStatus("Invalid time format. Use MM:SS or HH:MM:SS");
+      return;
+    }
+    if (clipStart && !clipEnd) {
+      setStatus("Please enter a clip end time.");
+      return;
+    }
+    if (!clipStart && clipEnd) {
+      setStatus("Please enter a clip start time.");
+      return;
+    }
+
     setProgress(0);
     setSmoothProgress(0);
     progressRef.current = 0;
@@ -132,10 +155,12 @@ export default function App() {
         formatId: selectedFormat,
         container: selectedContainer,
         savePath,
+        clipStart: clipStart.trim() || null,
+        clipEnd: clipEnd.trim() || null,
       });
       setProgress(100);
       setDone(true);
-      setStatus("Download complete!");
+      setStatus(clipStart ? "Clip downloaded!" : "Download complete!");
     } catch (err) {
       setStatus(
         err.message.includes("cancel")
@@ -154,6 +179,33 @@ export default function App() {
     setSmoothProgress(0);
     progressRef.current = 0;
     setStatus("Download cancelled");
+  };
+
+  const downloadThumbnail = async () => {
+    if (!videoInfo || !savePath) return;
+    setThumbDownloading(true);
+    setStatus("Saving thumbnail...");
+    try {
+      const thumbs = videoInfo.thumbnails || [];
+      const best = thumbs
+        .filter((t) => t.url)
+        .sort(
+          (a, b) =>
+            (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0),
+        )[0];
+      const thumbnailUrl = best?.url || videoInfo.thumbnail;
+      await window.electronAPI.downloadThumbnail({
+        thumbnailUrl,
+        title: videoInfo.title,
+        savePath,
+      });
+      setThumbDone(true);
+      setStatus("Thumbnail saved!");
+    } catch (err) {
+      setStatus("Error saving thumbnail: " + err.message);
+    } finally {
+      setThumbDownloading(false);
+    }
   };
 
   const selectedFormatData = videoInfo?.formats?.find(
@@ -413,7 +465,7 @@ export default function App() {
           {/* Right — controls */}
           {videoInfo && (
             <div className="flex-1 flex flex-col gap-5 min-w-0">
-              {/* Resolution + Container */}
+              {/* Resolution + Container side by side */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
@@ -429,31 +481,33 @@ export default function App() {
                         <option
                           key={f.format_id}
                           value={f.format_id}
-                          className="bg-[#0a0a0f]"
+                          className="bg-[#1a1a2e]"
                         >
                           {f.label}
                         </option>
                       ))}
                     </select>
-                    <svg
-                      className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 9l-7 7-7-7"
-                      />
-                    </svg>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 9l-7 7-7-7"
+                        />
+                      </svg>
+                    </div>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                    Format
+                    Container
                   </label>
                   <div className="relative">
                     <select
@@ -461,60 +515,95 @@ export default function App() {
                       onChange={(e) => setSelectedContainer(e.target.value)}
                       className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
                     >
-                      <option value="mp4" className="bg-[#0a0a0f]">
+                      <option value="mp4" className="bg-[#1a1a2e]">
                         MP4
                       </option>
-                      <option value="webm" className="bg-[#0a0a0f]">
-                        WebM
-                      </option>
-                      <option value="mkv" className="bg-[#0a0a0f]">
+                      <option value="mkv" className="bg-[#1a1a2e]">
                         MKV
                       </option>
+                      <option value="webm" className="bg-[#1a1a2e]">
+                        WebM
+                      </option>
                     </select>
-                    <svg
-                      className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 9l-7 7-7-7"
-                      />
-                    </svg>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 9l-7 7-7-7"
+                        />
+                      </svg>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Save path */}
+              {/* Clip section */}
               <div className="space-y-2">
                 <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                  Save to
-                </label>
-                <button
-                  onClick={pickFolder}
-                  className="w-full flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white/50 hover:border-white/20 hover:text-white/70 transition-colors"
-                >
-                  <svg
-                    className="w-4 h-4 flex-shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
-                    />
-                  </svg>
-                  <span className="truncate text-left">
-                    {savePath || "Choose folder..."}
+                  Clip{" "}
+                  <span className="normal-case font-normal text-white/20">
+                    (optional — leave blank for full video)
                   </span>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    placeholder="Start  0:00"
+                    value={clipStart}
+                    onChange={(e) => {
+                      setClipStart(e.target.value);
+                      setDone(false);
+                    }}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors text-white/80 placeholder:text-white/20 font-mono"
+                  />
+                  <input
+                    type="text"
+                    placeholder="End  1:30"
+                    value={clipEnd}
+                    onChange={(e) => {
+                      setClipEnd(e.target.value);
+                      setDone(false);
+                    }}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors text-white/80 placeholder:text-white/20 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Save Location */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                  Save Location
+                </label>
+                <div
+                  onClick={pickFolder}
+                  className="w-full flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 cursor-pointer hover:bg-white/8 hover:border-white/20 transition-all duration-200 group"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500/30 to-orange-500/30 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
+                    <svg
+                      className="w-4 h-4 text-amber-400"
+                      fill="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-white/25 mb-0.5 uppercase tracking-wider">
+                      Save to
+                    </p>
+                    <p className="text-sm text-white/70 truncate font-mono">
+                      {savePath || "Click to choose folder"}
+                    </p>
+                  </div>
                   <svg
-                    className="w-4 h-4 flex-shrink-0 ml-auto text-white/20"
+                    className="w-4 h-4 text-white/20 group-hover:text-white/50 transition-colors flex-shrink-0"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -526,7 +615,7 @@ export default function App() {
                       d="M9 5l7 7-7 7"
                     />
                   </svg>
-                </button>
+                </div>
               </div>
 
               {/* Spacer */}
@@ -566,32 +655,120 @@ export default function App() {
                 </div>
               )}
 
-              {/* Download / Cancel */}
+              {/* Download / Cancel + Thumbnail */}
               <div className="flex gap-3">
                 {!downloading ? (
-                  <button
-                    onClick={startDownload}
-                    disabled={!savePath || done}
-                    className="flex-1 py-3.5 rounded-xl font-semibold text-sm transition-all duration-300 disabled:opacity-30"
-                    style={{
-                      background: done
-                        ? "linear-gradient(135deg, #059669, #10b981)"
-                        : "linear-gradient(135deg, #7c3aed, #db2777)",
-                      boxShadow:
-                        !savePath || done
-                          ? "none"
-                          : "0 0 30px rgba(124,58,237,0.35)",
-                    }}
-                  >
-                    {done ? "✓ Downloaded" : "Download"}
-                  </button>
+                  <>
+                    <button
+                      onClick={startDownload}
+                      disabled={!savePath || done}
+                      className="flex-1 py-3.5 rounded-xl font-semibold text-sm transition-all duration-300 disabled:opacity-30"
+                      style={{
+                        background: done
+                          ? "linear-gradient(135deg, #059669, #10b981)"
+                          : "linear-gradient(135deg, #7c3aed, #db2777)",
+                        boxShadow:
+                          !savePath || done
+                            ? "none"
+                            : "0 0 30px rgba(124,58,237,0.35)",
+                      }}
+                    >
+                      {done
+                        ? "✓ Downloaded"
+                        : clipStart && clipEnd
+                          ? "Download Clip"
+                          : "Download"}
+                    </button>
+
+                    {/* Thumbnail button */}
+                    <button
+                      onClick={downloadThumbnail}
+                      disabled={!savePath || thumbDownloading || thumbDone}
+                      title="Save thumbnail as JPG"
+                      className="px-4 py-3.5 rounded-xl font-semibold text-sm transition-all duration-300 disabled:opacity-30 flex items-center justify-center"
+                      style={{
+                        background: thumbDone
+                          ? "linear-gradient(135deg, #059669, #10b981)"
+                          : "linear-gradient(135deg, #d97706, #f59e0b)",
+                        boxShadow:
+                          thumbDone || !savePath
+                            ? "none"
+                            : "0 0 20px rgba(217,119,6,0.35)",
+                      }}
+                    >
+                      {thumbDownloading ? (
+                        <svg
+                          className="animate-spin w-4 h-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8v8z"
+                          />
+                        </svg>
+                      ) : thumbDone ? (
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </>
                 ) : (
-                  <button
-                    onClick={cancelDownload}
-                    className="flex-1 py-3.5 rounded-xl font-semibold text-sm bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
-                  >
-                    Cancel
-                  </button>
+                  <>
+                    <button
+                      disabled
+                      className="flex-1 py-3.5 rounded-xl font-semibold text-sm opacity-50"
+                      style={{
+                        background: "linear-gradient(135deg, #7c3aed, #db2777)",
+                      }}
+                    >
+                      Downloading...
+                    </button>
+                    <button
+                      onClick={cancelDownload}
+                      className="px-6 py-3.5 rounded-xl font-semibold text-sm transition-all duration-200"
+                      style={{
+                        background: "linear-gradient(135deg, #dc2626, #b91c1c)",
+                        boxShadow: "0 0 20px rgba(220,38,38,0.4)",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </>
                 )}
               </div>
 
