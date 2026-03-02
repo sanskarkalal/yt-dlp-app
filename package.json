@@ -13,7 +13,7 @@
   },
   "build": {
     "appId": "com.ytdlp.app",
-    "productName": "YT Downloader",
+    "productName": "seedhe download by sanskar",
     "directories": {
       "output": "release"
     },
