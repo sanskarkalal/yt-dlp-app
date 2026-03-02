@@ -413,7 +413,11 @@ export default function App() {
           style={{ WebkitAppRegion: "drag" }}
         >
           <div className="flex items-center gap-2 select-none">
-            <span className="rocket text-base">🚀</span>
+            <img
+              src="/icon.png"
+              alt="App Icon"
+              className="w-10 h-10 object-contain select-none app-icon"
+            />
 
             <span
               className="text-xs font-black uppercase tracking-widest"

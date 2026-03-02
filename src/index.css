@@ -28,7 +28,15 @@ a:hover {
   25% { transform: rotate(-8deg); }
   75% { transform: rotate(8deg); }
 }
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-6deg); }
+  75% { transform: rotate(6deg); }
+}
 
+.app-icon {
+  animation: wiggle 1.5s ease-in-out infinite;
+}
 .rocket {
   display: inline-block;
   animation: wiggle 1.2s ease-in-out infinite;
