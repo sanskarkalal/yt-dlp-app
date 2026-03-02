@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-
+import iconPng from "./assets/icon.png";
 const formatDuration = (seconds) => {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -414,9 +414,9 @@ export default function App() {
         >
           <div className="flex items-center gap-2 select-none">
             <img
-              src="/icon.png"
+              src={iconPng}
               alt="App Icon"
-              className="w-10 h-10 object-contain select-none app-icon"
+              className="w-10 h-10 object-contain select-none"
             />
 
             <span
