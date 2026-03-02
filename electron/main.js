@@ -214,56 +214,88 @@ ipcMain.handle("get-video-info", async (_, url) => {
       }
       try {
         const data = JSON.parse(output);
-        const seen = new Set();
-        const formats = [];
 
-        const merged = data.formats
-          .filter((f) => f.vcodec !== "none" && f.acodec !== "none" && f.height)
-          .sort((a, b) => b.height - a.height);
+        // Collect every video format with real metadata
+        const rawFormats = [];
+        const allVideoFormats = data.formats
+          .filter((f) => f.vcodec !== "none" && f.vcodec !== null && f.height)
+          .sort(
+            (a, b) =>
+              b.height - a.height ||
+              (b.vbr || b.tbr || 0) - (a.vbr || a.tbr || 0),
+          );
 
-        for (const f of merged) {
-          const key = `${f.height}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            const vbr = f.vbr
-              ? Math.round(f.vbr)
-              : f.tbr
-                ? Math.round(f.tbr)
-                : null;
-            const abr = f.abr ? Math.round(f.abr) : null;
-            formats.push({
-              format_id: f.format_id,
-              label:
-                `${f.height}p${f.fps >= 60 ? ` ${f.fps}fps` : ""} · ${vbr ? vbr + " kbps" : ""} ${f.ext?.toUpperCase() || ""}`.trim(),
-              resolution: `${f.width}×${f.height}`,
-              vbitrate: vbr,
-              abitrate: abr,
-              fps: f.fps,
-            });
-          }
+        for (const f of allVideoFormats) {
+          const codecFull = f.vcodec || "";
+          const codecShort = codecFull.startsWith("avc")
+            ? "H264"
+            : codecFull.startsWith("hvc") || codecFull.startsWith("hev")
+              ? "H265"
+              : codecFull.startsWith("vp9")
+                ? "VP9"
+                : codecFull.startsWith("vp08")
+                  ? "VP8"
+                  : codecFull.startsWith("av01")
+                    ? "AV1"
+                    : codecFull.split(".")[0].toUpperCase();
+          const vbr = f.vbr ? Math.round(f.vbr) : null;
+          const tbr = f.tbr ? Math.round(f.tbr) : null;
+          const bitrate = vbr || (f.acodec === "none" ? tbr : null); // tbr on muxed = total, misleading
+          const hasMuxedAudio = f.acodec && f.acodec !== "none";
+
+          rawFormats.push({
+            format_id: f.format_id,
+            // If video-only, tell the download handler to merge with best audio
+            download_id: hasMuxedAudio
+              ? f.format_id
+              : `${f.format_id}+bestaudio`,
+            height: f.height,
+            width: f.width,
+            fps: f.fps || null,
+            codec: codecShort,
+            bitrate, // null if unknown
+            ext: f.ext || "",
+            hasMuxedAudio,
+          });
         }
 
-        const videoOnly = data.formats
-          .filter((f) => f.vcodec !== "none" && f.acodec === "none" && f.height)
-          .sort((a, b) => b.height - a.height);
+        // Keep legacy `formats` for backwards compat (unused by new UI but harmless)
+        const formats = [];
 
-        const seenSplit = new Set();
-        for (const f of videoOnly) {
-          const key = `${f.height}-split`;
-          if (!seenSplit.has(key)) {
-            seenSplit.add(key);
-            const vbr = f.vbr
-              ? Math.round(f.vbr)
-              : f.tbr
-                ? Math.round(f.tbr)
-                : null;
-            formats.push({
-              format_id: `bestvideo[height=${f.height}]+bestaudio`,
-              label:
-                `${f.height}p${f.fps >= 60 ? ` ${f.fps}fps` : ""} · ${vbr ? vbr + " kbps" : ""} (best quality)`.trim(),
-              resolution: `${f.width}×${f.height}`,
-              vbitrate: vbr,
-              fps: f.fps,
+        // --- NEW: Extract audio tracks ---
+        const audioOnlyRaw = data.formats.filter(
+          (f) => f.vcodec === "none" && f.acodec && f.acodec !== "none",
+        );
+        const seenAudio = new Set();
+        const audioTracks = [
+          { format_id: "bestaudio/best", label: "Best available" },
+        ];
+        for (const f of audioOnlyRaw) {
+          const lang = f.language || null;
+          const note = f.format_note || "";
+          const abr = f.abr ? Math.round(f.abr) : null;
+          const key = lang ? `lang:${lang}` : `${note}-${f.acodec}-${abr}`;
+          if (!seenAudio.has(key)) {
+            seenAudio.add(key);
+            let label = "";
+            if (lang) {
+              try {
+                label = new Intl.DisplayNames(["en"], { type: "language" }).of(
+                  lang,
+                );
+              } catch {
+                label = lang.toUpperCase();
+              }
+              if (note && note !== "Default") label += ` (${note})`;
+            } else {
+              label = note || (f.acodec || "").toUpperCase();
+            }
+            if (abr) label += ` · ${abr}kbps`;
+            audioTracks.push({
+              format_id: f.format_id,
+              label,
+              language: lang,
+              abr,
             });
           }
         }
@@ -275,6 +307,8 @@ ipcMain.handle("get-video-info", async (_, url) => {
           duration: data.duration,
           uploader: data.uploader,
           formats,
+          rawFormats,
+          audioTracks,
         });
       } catch (e) {
         reject(new Error("Failed to parse video info"));
@@ -339,6 +373,8 @@ ipcMain.handle(
       clipEnd,
       audioOnly,
       audioQuality,
+      audioTrackId, // NEW
+      audioContainer, // NEW
     },
   ) => {
     return new Promise((resolve, reject) => {
@@ -349,12 +385,14 @@ ipcMain.handle(
       if (audioOnly) {
         // Audio-only download
         const quality = audioQuality || "192";
+        const trackSelector = audioTrackId || "bestaudio/best"; // NEW
+        const outFormat = audioContainer || "mp3"; // NEW
         args = [
           "-f",
-          "bestaudio/best",
+          trackSelector,
           "--extract-audio",
           "--audio-format",
-          "mp3",
+          outFormat,
           "--audio-quality",
           `${quality}k`,
           "--ffmpeg-location",
@@ -375,7 +413,7 @@ ipcMain.handle(
           url,
         ];
       } else {
-        // Video download
+        // Video download — unchanged
         args = [
           "-f",
           formatId,

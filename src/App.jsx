@@ -111,7 +111,9 @@ function RangeSlider({ min, max, startVal, endVal, onChange }) {
 export default function App() {
   const [url, setUrl] = useState("");
   const [videoInfo, setVideoInfo] = useState(null);
-  const [selectedFormat, setSelectedFormat] = useState("");
+  const [selectedHeight, setSelectedHeight] = useState(null);
+  const [selectedCodec, setSelectedCodec] = useState(null);
+  const [selectedBitrate, setSelectedBitrate] = useState(null);
   const [selectedContainer, setSelectedContainer] = useState("mp4");
   const [savePath, setSavePath] = useState("");
   const [status, setStatus] = useState("");
@@ -130,6 +132,10 @@ export default function App() {
   const [thumbDownloading, setThumbDownloading] = useState(false);
   const [audioOnly, setAudioOnly] = useState(false);
   const [audioQuality, setAudioQuality] = useState("192");
+  // NEW
+  const [audioTrackId, setAudioTrackId] = useState("bestaudio/best");
+  const [audioContainer, setAudioContainer] = useState("mp3");
+
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
 
@@ -180,11 +186,29 @@ export default function App() {
     setShowLoginPrompt(false);
     setClipStart("");
     setClipEnd("");
+    setAudioTrackId("bestaudio/best"); // reset on new fetch
     try {
       const info = await window.electronAPI.getVideoInfo(urlToFetch);
       setVideoInfo(info);
-      if (info.formats?.length > 0)
-        setSelectedFormat(info.formats[0].format_id);
+      // Auto-select first available height
+      if (info.rawFormats?.length > 0) {
+        const firstHeight = info.rawFormats[0].height;
+        setSelectedHeight(firstHeight);
+        const codecsAtHeight = [
+          ...new Set(
+            info.rawFormats
+              .filter((f) => f.height === firstHeight)
+              .map((f) => f.codec),
+          ),
+        ];
+        setSelectedCodec(codecsAtHeight[0] || null);
+        const bitratesAtHeightCodec = info.rawFormats
+          .filter(
+            (f) => f.height === firstHeight && f.codec === codecsAtHeight[0],
+          )
+          .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+        setSelectedBitrate(bitratesAtHeightCodec[0]?.bitrate ?? null);
+      }
       setStatus("");
     } catch (err) {
       if (err.message.includes("AGE_RESTRICTED")) {
@@ -230,7 +254,7 @@ export default function App() {
       setStatus("Please fill in all fields");
       return;
     }
-    if (!audioOnly && !selectedFormat) {
+    if (!audioOnly && !selectedHeight) {
       setStatus("Please select a format");
       return;
     }
@@ -261,15 +285,27 @@ export default function App() {
       setStatus("Downloading...");
     });
     try {
+      // Derive the download_id from selected height+codec+bitrate
+      const selectedRaw = videoInfo?.rawFormats?.find(
+        (f) =>
+          f.height === selectedHeight &&
+          f.codec === selectedCodec &&
+          f.bitrate === selectedBitrate,
+      );
+      const resolvedFormatId =
+        selectedRaw?.download_id || "bestvideo+bestaudio";
+
       await window.electronAPI.download({
         url,
-        formatId: selectedFormat,
+        formatId: resolvedFormatId,
         container: selectedContainer,
         savePath,
         clipStart: clipStart.trim() || null,
         clipEnd: clipEnd.trim() || null,
         audioOnly,
         audioQuality,
+        audioTrackId: audioOnly ? audioTrackId : null,
+        audioContainer: audioOnly ? audioContainer : null,
       });
       setProgress(100);
       setDone(true);
@@ -326,10 +362,6 @@ export default function App() {
       setThumbDownloading(false);
     }
   };
-
-  const selectedFormatData = videoInfo?.formats?.find(
-    (f) => f.format_id === selectedFormat,
-  );
 
   const AuthPill = () => {
     if (cookiesOk) {
@@ -529,6 +561,82 @@ export default function App() {
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                   </div>
                 )}
+
+                {/* NEW: Thumbnail download button — below the image */}
+                <div className="px-3 pt-3 pb-0">
+                  <button
+                    onClick={downloadThumbnail}
+                    disabled={!savePath || thumbDownloading || thumbDone}
+                    title="Save thumbnail as JPG"
+                    className="w-full py-2 rounded-xl font-semibold text-xs transition-all duration-300 disabled:opacity-30 flex items-center justify-center gap-1.5"
+                    style={{
+                      background: thumbDone
+                        ? "linear-gradient(135deg, #059669, #10b981)"
+                        : "linear-gradient(135deg, #d97706, #f59e0b)",
+                      boxShadow:
+                        thumbDone || !savePath
+                          ? "none"
+                          : "0 0 14px rgba(217,119,6,0.3)",
+                    }}
+                  >
+                    {thumbDownloading ? (
+                      <svg
+                        className="animate-spin w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8v8z"
+                        />
+                      </svg>
+                    ) : thumbDone ? (
+                      <>
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        Saved
+                      </>
+                    ) : (
+                      <>
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                          />
+                        </svg>
+                        Save Thumbnail
+                      </>
+                    )}
+                  </button>
+                </div>
+
                 <div className="p-4">
                   <p className="font-semibold text-sm leading-snug line-clamp-2 text-white/90">
                     {videoInfo.title}
@@ -539,35 +647,50 @@ export default function App() {
                 </div>
               </div>
 
-              {selectedFormatData && !audioOnly && (
+              {!audioOnly && selectedHeight && (
                 <div className="flex gap-2 flex-wrap">
-                  {selectedFormatData.resolution && (
-                    <span className="text-[11px] px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/20 font-mono">
-                      {selectedFormatData.resolution}
-                    </span>
-                  )}
-                  {selectedFormatData.vbitrate && (
-                    <span className="text-[11px] px-2.5 py-1 rounded-full bg-pink-500/15 text-pink-300 border border-pink-500/20 font-mono">
-                      {selectedFormatData.vbitrate} kbps video
-                    </span>
-                  )}
-                  {selectedFormatData.abitrate && (
-                    <span className="text-[11px] px-2.5 py-1 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/20 font-mono">
-                      {selectedFormatData.abitrate} kbps audio
-                    </span>
-                  )}
-                  {selectedFormatData.fps && (
-                    <span className="text-[11px] px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 font-mono">
-                      {selectedFormatData.fps} fps
-                    </span>
-                  )}
+                  {(() => {
+                    const f = videoInfo?.rawFormats?.find(
+                      (r) =>
+                        r.height === selectedHeight &&
+                        r.codec === selectedCodec &&
+                        r.bitrate === selectedBitrate,
+                    );
+                    return (
+                      <>
+                        <span className="text-[11px] px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/20 font-mono">
+                          {f?.width && f?.height
+                            ? `${f.width}×${f.height}`
+                            : `${selectedHeight}p`}
+                        </span>
+                        {selectedCodec && (
+                          <span className="text-[11px] px-2.5 py-1 rounded-full bg-pink-500/15 text-pink-300 border border-pink-500/20 font-mono">
+                            {selectedCodec}
+                          </span>
+                        )}
+                        {selectedBitrate && (
+                          <span className="text-[11px] px-2.5 py-1 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/20 font-mono">
+                            {selectedBitrate} kbps
+                          </span>
+                        )}
+                        {f?.fps && (
+                          <span className="text-[11px] px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 font-mono">
+                            {f.fps} fps
+                          </span>
+                        )}
+                        <span className="text-[11px] px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/20 font-mono">
+                          {selectedContainer.toUpperCase()}
+                        </span>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 
               {audioOnly && (
                 <div className="flex gap-2 flex-wrap">
                   <span className="text-[11px] px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/20 font-mono">
-                    MP3 · {audioQuality}kbps
+                    {audioContainer.toUpperCase()} · {audioQuality}kbps
                   </span>
                 </div>
               )}
@@ -626,117 +749,312 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Video controls */}
-              {!audioOnly && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                      Resolution
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={selectedFormat}
-                        onChange={(e) => setSelectedFormat(e.target.value)}
-                        className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
+              {/* Video controls — cascading selectors */}
+              {!audioOnly &&
+                (() => {
+                  const raw = videoInfo.rawFormats || [];
+
+                  const heights = [...new Set(raw.map((f) => f.height))].sort(
+                    (a, b) => b - a,
+                  );
+                  const codecsAtHeight = [
+                    ...new Set(
+                      raw
+                        .filter((f) => f.height === selectedHeight)
+                        .map((f) => f.codec),
+                    ),
+                  ];
+                  const matchingFormats = raw
+                    .filter(
+                      (f) =>
+                        f.height === selectedHeight &&
+                        f.codec === selectedCodec,
+                    )
+                    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+                  const selectCls =
+                    "w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80";
+                  const optCls = "bg-[#1a1a2e]";
+                  const Chevron = () => (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
                       >
-                        {videoInfo.formats.map((f) => (
-                          <option
-                            key={f.format_id}
-                            value={f.format_id}
-                            className="bg-[#1a1a2e]"
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 9l-7 7-7-7"
+                        />
+                      </svg>
+                    </div>
+                  );
+
+                  return (
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Resolution */}
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                          Resolution
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={selectedHeight ?? ""}
+                            className={selectCls}
+                            onChange={(e) => {
+                              const h = Number(e.target.value);
+                              setSelectedHeight(h);
+                              setDone(false);
+                              const codecs = [
+                                ...new Set(
+                                  raw
+                                    .filter((f) => f.height === h)
+                                    .map((f) => f.codec),
+                                ),
+                              ];
+                              const codec = codecs[0] || null;
+                              setSelectedCodec(codec);
+                              const bits = raw
+                                .filter(
+                                  (f) => f.height === h && f.codec === codec,
+                                )
+                                .sort(
+                                  (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
+                                );
+                              setSelectedBitrate(bits[0]?.bitrate ?? null);
+                            }}
                           >
-                            {f.label}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 9l-7 7-7-7"
-                          />
-                        </svg>
+                            {heights.map((h) => (
+                              <option key={h} value={h} className={optCls}>
+                                {h}p
+                              </option>
+                            ))}
+                          </select>
+                          <Chevron />
+                        </div>
+                      </div>
+
+                      {/* Codec */}
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                          Codec
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={selectedCodec ?? ""}
+                            className={selectCls}
+                            onChange={(e) => {
+                              const codec = e.target.value;
+                              setSelectedCodec(codec);
+                              setDone(false);
+                              const bits = raw
+                                .filter(
+                                  (f) =>
+                                    f.height === selectedHeight &&
+                                    f.codec === codec,
+                                )
+                                .sort(
+                                  (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
+                                );
+                              setSelectedBitrate(bits[0]?.bitrate ?? null);
+                            }}
+                          >
+                            {codecsAtHeight.map((c) => (
+                              <option key={c} value={c} className={optCls}>
+                                {c}
+                              </option>
+                            ))}
+                          </select>
+                          <Chevron />
+                        </div>
+                      </div>
+
+                      {/* Bitrate */}
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                          Bitrate
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={selectedBitrate ?? ""}
+                            className={selectCls}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setSelectedBitrate(
+                                val === "" ? null : Number(val),
+                              );
+                              setDone(false);
+                            }}
+                          >
+                            {matchingFormats.length === 0 ? (
+                              <option value="" className={optCls}>
+                                No options
+                              </option>
+                            ) : (
+                              matchingFormats.map((f) => (
+                                <option
+                                  key={f.format_id}
+                                  value={f.bitrate ?? ""}
+                                  className={optCls}
+                                >
+                                  {f.bitrate ? `${f.bitrate} kbps` : "Unknown"}
+                                  {f.fps >= 60 ? ` · ${f.fps}fps` : ""}
+                                  {!f.hasMuxedAudio ? " · video only" : ""}
+                                </option>
+                              ))
+                            )}
+                          </select>
+                          <Chevron />
+                        </div>
+                      </div>
+
+                      {/* Container */}
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                          Container
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={selectedContainer}
+                            className={selectCls}
+                            onChange={(e) => {
+                              setSelectedContainer(e.target.value);
+                              setDone(false);
+                            }}
+                          >
+                            <option value="mp4" className={optCls}>
+                              MP4
+                            </option>
+                            <option value="mkv" className={optCls}>
+                              MKV
+                            </option>
+                            <option value="webm" className={optCls}>
+                              WebM
+                            </option>
+                          </select>
+                          <Chevron />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                      Container
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={selectedContainer}
-                        onChange={(e) => setSelectedContainer(e.target.value)}
-                        className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
-                      >
-                        <option value="mp4" className="bg-[#1a1a2e]">
-                          MP4
-                        </option>
-                        <option value="mkv" className="bg-[#1a1a2e]">
-                          MKV
-                        </option>
-                        <option value="webm" className="bg-[#1a1a2e]">
-                          WebM
-                        </option>
-                      </select>
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 9l-7 7-7-7"
-                          />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+                  );
+                })()}
 
               {/* Audio controls */}
               {audioOnly && (
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                    Quality
-                  </label>
-                  <div className="flex gap-2">
-                    {["128", "192", "320"].map((q) => (
-                      <button
-                        key={q}
-                        onClick={() => setAudioQuality(q)}
-                        className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-200 border"
-                        style={{
-                          background:
-                            audioQuality === q
-                              ? "linear-gradient(135deg, #7c3aed33, #db277733)"
-                              : "rgba(255,255,255,0.03)",
-                          borderColor:
-                            audioQuality === q
-                              ? "rgba(124,58,237,0.5)"
-                              : "rgba(255,255,255,0.1)",
-                          color:
-                            audioQuality === q
-                              ? "white"
-                              : "rgba(255,255,255,0.4)",
-                        }}
-                      >
-                        {q}k
-                      </button>
-                    ))}
+                <div className="space-y-3">
+                  {/* Quality */}
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                      Quality
+                    </label>
+                    <div className="flex gap-2">
+                      {["128", "192", "320"].map((q) => (
+                        <button
+                          key={q}
+                          onClick={() => setAudioQuality(q)}
+                          className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-200 border"
+                          style={{
+                            background:
+                              audioQuality === q
+                                ? "linear-gradient(135deg, #7c3aed33, #db277733)"
+                                : "rgba(255,255,255,0.03)",
+                            borderColor:
+                              audioQuality === q
+                                ? "rgba(124,58,237,0.5)"
+                                : "rgba(255,255,255,0.1)",
+                            color:
+                              audioQuality === q
+                                ? "white"
+                                : "rgba(255,255,255,0.4)",
+                          }}
+                        >
+                          {q}k
+                        </button>
+                      ))}
+                    </div>
                   </div>
+
+                  {/* NEW: Audio container format */}
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                      Format
+                    </label>
+                    <div className="flex gap-2">
+                      {["mp3", "m4a", "opus", "wav"].map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => {
+                            setAudioContainer(c);
+                            setDone(false);
+                          }}
+                          className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-200 border"
+                          style={{
+                            background:
+                              audioContainer === c
+                                ? "linear-gradient(135deg, #7c3aed33, #db277733)"
+                                : "rgba(255,255,255,0.03)",
+                            borderColor:
+                              audioContainer === c
+                                ? "rgba(124,58,237,0.5)"
+                                : "rgba(255,255,255,0.1)",
+                            color:
+                              audioContainer === c
+                                ? "white"
+                                : "rgba(255,255,255,0.4)",
+                          }}
+                        >
+                          {c.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* NEW: Audio track selector — only if multiple tracks exist */}
+                  {(videoInfo.audioTracks?.length ?? 0) > 1 && (
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
+                        Audio Track
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={audioTrackId}
+                          onChange={(e) => {
+                            setAudioTrackId(e.target.value);
+                            setDone(false);
+                          }}
+                          className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
+                        >
+                          {videoInfo.audioTracks.map((t) => (
+                            <option
+                              key={t.format_id}
+                              value={t.format_id}
+                              className="bg-[#1a1a2e]"
+                            >
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 9l-7 7-7-7"
+                            />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -895,77 +1213,10 @@ export default function App() {
                       {done
                         ? "✓ Downloaded"
                         : audioOnly
-                          ? "Download MP3"
+                          ? `Download ${audioContainer.toUpperCase()}`
                           : clipStart && clipEnd
-                            ? "Download Clip"
-                            : "Download"}
-                    </button>
-
-                    {/* Thumbnail button */}
-                    <button
-                      onClick={downloadThumbnail}
-                      disabled={!savePath || thumbDownloading || thumbDone}
-                      title="Save thumbnail as JPG"
-                      className="px-4 py-3.5 rounded-xl font-semibold text-sm transition-all duration-300 disabled:opacity-30 flex items-center justify-center"
-                      style={{
-                        background: thumbDone
-                          ? "linear-gradient(135deg, #059669, #10b981)"
-                          : "linear-gradient(135deg, #d97706, #f59e0b)",
-                        boxShadow:
-                          thumbDone || !savePath
-                            ? "none"
-                            : "0 0 20px rgba(217,119,6,0.35)",
-                      }}
-                    >
-                      {thumbDownloading ? (
-                        <svg
-                          className="animate-spin w-4 h-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                        >
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="4"
-                          />
-                          <path
-                            className="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8v8z"
-                          />
-                        </svg>
-                      ) : thumbDone ? (
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                      ) : (
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                          />
-                        </svg>
-                      )}
+                            ? `Download Clip · ${selectedContainer.toUpperCase()}`
+                            : `Download · ${selectedContainer.toUpperCase()}`}
                     </button>
                   </>
                 ) : (

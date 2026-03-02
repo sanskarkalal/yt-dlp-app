@@ -17,4 +17,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeAllListeners("cookies-status");
     ipcRenderer.on("cookies-status", (_, ok) => cb(ok));
   },
+  downloadThumbnail: (opts) => ipcRenderer.invoke("download-thumbnail", opts),
 });
