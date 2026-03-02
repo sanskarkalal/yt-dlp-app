@@ -176,7 +176,7 @@ npm run dist
 ## 🔐 Age-Restricted Videos
 
 When you try to download an age-restricted video, the app will automatically prompt you to sign in to YouTube. A Google sign-in window will open inside the app — log in normally, and the app will extract your session cookies and save them locally to:
-
+THIS IS NOT YET WORKING ON MAC PROPERLY SO FIXES WILL BE PUSHED SOON
 ```
 ~/Documents/yt-dlp-app/cookies.txt
 ```
