@@ -413,14 +413,11 @@ export default function App() {
           style={{ WebkitAppRegion: "drag", paddingLeft: "80px" }}
         >
           <div
-            className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 text-2xl select-none"
+            className="text-3xl select-none flex-shrink-0"
             style={{
               WebkitAppRegion: "no-drag",
-              background: "linear-gradient(135deg, #7c3aed, #db2777, #f59e0b)",
-              boxShadow:
-                "0 0 24px rgba(124,58,237,0.6), 0 0 48px rgba(219,39,119,0.3)",
-              transform: "rotate(-6deg)",
               animation: "wiggle 3s ease-in-out infinite",
+              display: "inline-block",
             }}
           >
             🚀
