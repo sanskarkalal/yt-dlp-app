@@ -408,10 +408,14 @@ export default function App() {
 
       <div className="relative z-10 flex-1 flex flex-col px-8 pt-8 pb-8 gap-5 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div
+          className="flex items-center gap-3 flex-shrink-0"
+          style={{ WebkitAppRegion: "drag", paddingLeft: "80px" }}
+        >
           <div
             className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 text-2xl select-none"
             style={{
+              WebkitAppRegion: "no-drag",
               background: "linear-gradient(135deg, #7c3aed, #db2777, #f59e0b)",
               boxShadow:
                 "0 0 24px rgba(124,58,237,0.6), 0 0 48px rgba(219,39,119,0.3)",

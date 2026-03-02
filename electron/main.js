@@ -54,8 +54,8 @@ function createWindow() {
     height: 820,
     minWidth: 960,
     minHeight: 680,
-    titleBarStyle: "hidden",
-    trafficLightPosition: { x: -100, y: -100 },
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: "#0a0a0f",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -77,6 +77,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   const win = createWindow();
+  win.setMenu(null);
 
   const cookiesDir = path.dirname(COOKIES_PATH);
   if (!fs.existsSync(cookiesDir)) {
