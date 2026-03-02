@@ -300,6 +300,14 @@ ipcMain.handle("get-video-info", async (_, url) => {
           }
         }
 
+        // Derive available containers: native exts + always include mp4 + mkv
+        const nativeExts = [
+          ...new Set(rawFormats.map((f) => f.ext).filter(Boolean)),
+        ];
+        const availableContainers = [
+          ...new Set([...nativeExts, "mp4", "mkv"]),
+        ].sort();
+
         resolve({
           title: data.title,
           thumbnail: data.thumbnail,
@@ -309,6 +317,7 @@ ipcMain.handle("get-video-info", async (_, url) => {
           formats,
           rawFormats,
           audioTracks,
+          availableContainers,
         });
       } catch (e) {
         reject(new Error("Failed to parse video info"));

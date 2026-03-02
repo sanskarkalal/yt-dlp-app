@@ -209,6 +209,14 @@ export default function App() {
           .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
         setSelectedBitrate(bitratesAtHeightCodec[0]?.bitrate ?? null);
       }
+      // Auto-select first available container (prefer mp4, else first in list)
+      if (info.availableContainers?.length > 0) {
+        setSelectedContainer(
+          info.availableContainers.includes("mp4")
+            ? "mp4"
+            : info.availableContainers[0],
+        );
+      }
       setStatus("");
     } catch (err) {
       if (err.message.includes("AGE_RESTRICTED")) {
@@ -401,25 +409,60 @@ export default function App() {
       <div className="relative z-10 flex-1 flex flex-col px-8 pt-8 pb-8 gap-5 overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-3 flex-shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center shadow-lg shadow-violet-500/30 flex-shrink-0">
-            <svg
-              className="w-4 h-4 text-white"
-              fill="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" />
-            </svg>
+          <div
+            className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 text-2xl select-none"
+            style={{
+              background: "linear-gradient(135deg, #7c3aed, #db2777, #f59e0b)",
+              boxShadow:
+                "0 0 24px rgba(124,58,237,0.6), 0 0 48px rgba(219,39,119,0.3)",
+              transform: "rotate(-6deg)",
+              animation: "wiggle 3s ease-in-out infinite",
+            }}
+          >
+            🚀
           </div>
           <div className="flex-1">
-            <h1 className="text-base font-semibold tracking-tight">
-              YT Downloader
+            <h1
+              className="text-xl font-black tracking-tight uppercase flex items-center gap-1"
+              style={{ fontStyle: "italic", letterSpacing: "-0.02em" }}
+            >
+              <span style={{ WebkitTextFillColor: "initial" }}>💀</span>
+              <span
+                style={{
+                  background:
+                    "linear-gradient(90deg, #a78bfa, #f472b6, #fb923c, #a78bfa)",
+                  backgroundSize: "200% auto",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
+                  animation: "shimmer 3s linear infinite",
+                }}
+              >
+                SEEDHE DOWNLOAD
+              </span>
+              <span style={{ WebkitTextFillColor: "initial" }}>💀</span>
             </h1>
-            <p className="text-[11px] text-white/30">Powered by yt-dlp</p>
+            <p
+              className="text-[11px]"
+              style={{ color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}
+            >
+              🎯 by Sanskar • no cap frfr
+            </p>
           </div>
           <div style={{ WebkitAppRegion: "no-drag" }}>
             <AuthPill />
           </div>
         </div>
+        <style>{`
+          @keyframes shimmer {
+            0% { background-position: 0% center; }
+            100% { background-position: 200% center; }
+          }
+          @keyframes wiggle {
+            0%, 100% { transform: rotate(-6deg) scale(1); }
+            50% { transform: rotate(6deg) scale(1.1); }
+          }
+        `}</style>
 
         {/* URL Bar */}
         <div className="relative group flex-shrink-0">
@@ -925,15 +968,13 @@ export default function App() {
                               setDone(false);
                             }}
                           >
-                            <option value="mp4" className={optCls}>
-                              MP4
-                            </option>
-                            <option value="mkv" className={optCls}>
-                              MKV
-                            </option>
-                            <option value="webm" className={optCls}>
-                              WebM
-                            </option>
+                            {(
+                              videoInfo.availableContainers || ["mp4", "mkv"]
+                            ).map((c) => (
+                              <option key={c} value={c} className={optCls}>
+                                {c.toUpperCase()}
+                              </option>
+                            ))}
                           </select>
                           <Chevron />
                         </div>
