@@ -407,63 +407,15 @@ export default function App() {
       </div>
 
       <div className="relative z-10 flex-1 flex flex-col px-8 pt-8 pb-8 gap-5 overflow-hidden">
-        {/* Header */}
+        {/* Header — drag region only, no title UI */}
         <div
-          className="flex items-center gap-3 flex-shrink-0"
+          className="flex items-center justify-end flex-shrink-0 h-8"
           style={{ WebkitAppRegion: "drag", paddingLeft: "80px" }}
         >
-          <div
-            className="text-3xl select-none flex-shrink-0"
-            style={{
-              WebkitAppRegion: "no-drag",
-              animation: "wiggle 3s ease-in-out infinite",
-              display: "inline-block",
-            }}
-          >
-            🚀
-          </div>
-          <div className="flex-1">
-            <h1
-              className="text-xl font-black tracking-tight uppercase flex items-center gap-1"
-              style={{ fontStyle: "italic", letterSpacing: "-0.02em" }}
-            >
-              <span style={{ WebkitTextFillColor: "initial" }}>💀</span>
-              <span
-                style={{
-                  background:
-                    "linear-gradient(90deg, #a78bfa, #f472b6, #fb923c, #a78bfa)",
-                  backgroundSize: "200% auto",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundClip: "text",
-                  animation: "shimmer 3s linear infinite",
-                }}
-              >
-                SEEDHE DOWNLOAD
-              </span>
-              <span style={{ WebkitTextFillColor: "initial" }}>💀</span>
-            </h1>
-            <p
-              className="text-[11px]"
-              style={{ color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}
-            >
-              🎯 by Sanskar • no cap frfr
-            </p>
-          </div>
           <div style={{ WebkitAppRegion: "no-drag" }}>
             <AuthPill />
           </div>
         </div>
-        <style>{`
-          @keyframes shimmer {
-            0% { background-position: 0% center; }
-            100% { background-position: 200% center; }
-          }
-          @keyframes wiggle {
-            0%, 100% { transform: rotate(-6deg) scale(1); }
-            50% { transform: rotate(6deg) scale(1.1); }
-          }
-        `}</style>
 
         {/* URL Bar */}
         <div className="relative group flex-shrink-0">
@@ -552,7 +504,7 @@ export default function App() {
             </div>
             <button
               onClick={handleYouTubeLogin}
-              className="px-4 py-2 rounded-lg text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-black transition-colors flex-shrink-0"
+              className="px-4 py-2 rounded-lg text-sm font-semibold bg-white hover:bg-white/90 text-black transition-colors flex-shrink-0"
             >
               Sign in to YouTube
             </button>

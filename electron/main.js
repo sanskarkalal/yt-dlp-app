@@ -50,12 +50,13 @@ function cookieArgs() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 960,
-    minHeight: 680,
+    width: 1100,
+    height: 760,
+    minWidth: 900,
+    minHeight: 700,
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 16 },
+    title: "Seedhe Download",
     backgroundColor: "#0a0a0f",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
