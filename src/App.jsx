@@ -406,12 +406,28 @@ export default function App() {
         <div className="absolute bottom-0 left-1/3 w-[400px] h-[300px] bg-blue-600/6 rounded-full blur-3xl" />
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col px-8 pt-8 pb-8 gap-5 overflow-hidden">
-        {/* Header — drag region only, no title UI */}
+      <div className="relative z-10 flex-1 flex flex-col px-8 pt-4 pb-8 gap-4 overflow-y-auto scrollbar-hide">
+        {/* Header */}
         <div
-          className="flex items-center justify-end flex-shrink-0 h-8"
-          style={{ WebkitAppRegion: "drag", paddingLeft: "80px" }}
+          className="flex items-center justify-between flex-shrink-0"
+          style={{ WebkitAppRegion: "drag" }}
         >
+          <div className="flex items-center gap-2 select-none">
+            <span className="rocket text-base">🚀</span>
+
+            <span
+              className="text-xs font-black uppercase tracking-widest"
+              style={{
+                background: "linear-gradient(90deg, #a78bfa, #f472b6, #fb923c)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+                fontStyle: "italic",
+              }}
+            >
+              Seedhe Download
+            </span>
+          </div>
           <div style={{ WebkitAppRegion: "no-drag" }}>
             <AuthPill />
           </div>
@@ -484,27 +500,22 @@ export default function App() {
 
         {/* Age restriction prompt */}
         {showLoginPrompt && (
-          <div className="flex-shrink-0 bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-center gap-4">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-              <svg
-                className="w-4 h-4 text-amber-400"
-                fill="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 4a3 3 0 110 6 3 3 0 010-6zm0 8c-2 0-6 1-6 3v1h12v-1c0-2-4-3-6-3z" />
-              </svg>
+          <div className="flex-shrink-0 bg-white/5 border border-white/15 rounded-xl p-4 flex items-center gap-4">
+            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 text-lg">
+              🔞
             </div>
             <div className="flex-1">
-              <p className="text-sm font-medium text-amber-300">
+              <p className="text-sm font-medium text-white/80">
                 Age-restricted video
               </p>
-              <p className="text-xs text-amber-400/70 mt-0.5">
+              <p className="text-xs text-white/40 mt-0.5">
                 Sign in to YouTube to access this video
               </p>
             </div>
             <button
               onClick={handleYouTubeLogin}
-              className="px-4 py-2 rounded-lg text-sm font-semibold bg-white hover:bg-white/90 text-black transition-colors flex-shrink-0"
+              className="px-4 py-2 rounded-lg text-sm font-bold transition-colors flex-shrink-0"
+              style={{ background: "#ffffff", color: "#000000" }}
             >
               Sign in to YouTube
             </button>
