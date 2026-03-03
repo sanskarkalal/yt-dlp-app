@@ -49,7 +49,7 @@ Follow these steps in order.
 ## 1️⃣ Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/yt-dlp-app.git
+git clone https://github.com/sanskarkalal/yt-dlp-app.git
 cd yt-dlp-app
 ```
 
