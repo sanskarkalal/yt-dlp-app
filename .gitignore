@@ -5,3 +5,4 @@ cookies.txt
 .DS_Store
 *.dmg
 *.exe
+bin/
