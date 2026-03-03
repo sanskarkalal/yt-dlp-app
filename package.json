@@ -1,6 +1,7 @@
 {
   "name": "yt-dlp-app",
   "version": "1.0.0",
+  "type": "module",
   "main": "electron/main.js",
   "scripts": {
     "dev:vite": "vite",

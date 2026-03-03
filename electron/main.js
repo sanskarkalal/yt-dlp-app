@@ -1,8 +1,14 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
-const path = require("path");
-const os = require("os");
-const fs = require("fs");
-const { spawn } = require("child_process");
+import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import path from "node:path";
+import os from "node:os";
+import fs from "node:fs";
+import { spawn } from "node:child_process";
+import https from "node:https";
+import http from "node:http";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const isWin = process.platform === "win32";
 const isMac = process.platform === "darwin";
@@ -111,7 +117,7 @@ function createWindow() {
     title: "Seedhe Download",
     backgroundColor: "#0a0a0f",
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -430,8 +436,6 @@ ipcMain.handle(
   "download-thumbnail",
   async (_, { thumbnailUrl, title, savePath }) => {
     return new Promise((resolve, reject) => {
-      const https = require("https");
-      const http = require("http");
       const sanitized = title.replace(/[/\\?%*:|"<>]/g, "-").trim();
       const dest = path.join(savePath, `${sanitized}.jpg`);
       const file = fs.createWriteStream(dest);
