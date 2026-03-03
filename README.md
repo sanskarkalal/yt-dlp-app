@@ -1,4 +1,4 @@
-# 🎬 YT Downloader
+# 🎬 Seedhe Download
 
 A cross-platform desktop app to download YouTube videos — built with Electron, React, and yt-dlp.
 
@@ -11,41 +11,68 @@ Supports HD downloads, audio-only export, clip trimming, and age-restricted cont
 ## ✨ Features
 
 - Download YouTube videos in any resolution (up to 4K)
-- Audio-only downloads (MP3, M4A, etc.)
+- Audio-only downloads (MP3, M4A, OPUS, WAV)
 - Clip trimming — download a specific time range
 - Age-restricted video support via embedded Google sign-in
+- Download history with Show in Finder / Explorer
 - Self-contained — yt-dlp and ffmpeg are bundled
 - Works on **Windows** and **macOS**
 
 ---
 
-## 🛠 Prerequisites (For Developers)
+# 📦 Installing the App (End Users)
 
-Before building from source, install:
+Download the latest release from the [Releases](../../releases) page.
 
-- **Node.js v20** (required)  
-  https://nodejs.org/en/download  
-- **Git**  
-  https://git-scm.com/downloads  
+---
 
-Verify Node version:
+## 🪟 Windows
+
+1. Download the `.exe` installer
+2. Double-click and install
+3. Open the app — done ✅
+
+No extra steps needed.
+
+---
+
+## 🍎 macOS
+
+1. Download the `.dmg` file
+2. Open it and drag the app into `/Applications`
+3. **Before opening**, run this command in Terminal:
 
 ```bash
-node -v
-# Must print v20.x.x
+xattr -dr com.apple.quarantine "/Applications/seedhe download by sanskar.app"
 ```
 
-Other Node versions may cause build or Electron issues.
+4. Open the app — done ✅
+
+> **Why is this needed?**  
+> macOS Gatekeeper flags apps that aren't Apple-notarized. This command removes that quarantine flag. The app itself is safe — it's just not signed with an Apple developer certificate.
 
 ---
 
-# 🚀 Setup Guide (From Source)
+# 🛠 Developer Setup (Run from Source)
 
-Follow these steps in order.
+Follow these steps if you want to run or build the app yourself.
 
 ---
 
-## 1️⃣ Clone the Repository
+## Prerequisites
+
+- **Node.js v20+** → https://nodejs.org/en/download
+- **Git** → https://git-scm.com/downloads
+
+Verify:
+
+```bash
+node -v   # Must print v20.x.x or higher
+```
+
+---
+
+## 1. Clone the Repository
 
 ```bash
 git clone https://github.com/sanskarkalal/yt-dlp-app.git
@@ -54,7 +81,7 @@ cd yt-dlp-app
 
 ---
 
-## 2️⃣ Install Dependencies
+## 2. Install Dependencies
 
 ```bash
 npm install
@@ -62,10 +89,9 @@ npm install
 
 ---
 
-## 3️⃣ Create Required Binary Folders
+## 3. Download Required Binaries
 
-The app bundles `yt-dlp` and `ffmpeg` manually.  
-They **must** exist inside `resources/bin/` before running or building.
+The app bundles `yt-dlp` and `ffmpeg` directly — they must exist in `resources/bin/` before running or building.
 
 Required structure:
 
@@ -80,178 +106,125 @@ resources/
       ffmpeg
 ```
 
----
+### 🪟 Windows — Automated
 
-## 4️⃣ Download Required Binaries
-
-### 🪟 Windows
-
-Open PowerShell in the project root:
+Run this in PowerShell (from project root):
 
 ```powershell
-# Create folder
-New-Item -ItemType Directory -Force -Path "resources\bin\win"
-
-# Download yt-dlp
-Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "resources\bin\win\yt-dlp.exe"
-
-# Download ffmpeg static build
-Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile "ffmpeg.zip"
-
-# Extract ffmpeg.exe
-Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg_tmp" -Force
-Copy-Item "ffmpeg_tmp\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe" "resources\bin\win\ffmpeg.exe"
-
-# Cleanup
-Remove-Item -Recurse -Force "ffmpeg.zip", "ffmpeg_tmp"
+npm run setup:win
 ```
 
-Verify:
+This downloads yt-dlp and ffmpeg, then builds the installer automatically.
 
-```powershell
-dir resources\bin\win
-# Should show: yt-dlp.exe  ffmpeg.exe
+### 🍎 macOS — Automated
+
+```bash
+npm run setup:mac
 ```
+
+Same thing — downloads binaries and builds the DMG.
+
+### Manual Binary Download
+
+If you want to download binaries yourself:
+
+**yt-dlp:**
+- Windows: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
+- macOS: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
+
+**ffmpeg:**
+- Windows: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip (extract `ffmpeg.exe`)
+- macOS: via Homebrew — `brew install ffmpeg`, then copy the binary from `which ffmpeg`
 
 ---
 
-# 🧪 Run in Development Mode
+## 4. Run in Development Mode
 
 ```bash
 npm run dev
 ```
 
-This:
-- Starts Vite
-- Launches Electron
-- Opens the app automatically
-
-If the app crashes at launch, confirm binaries exist in `resources/bin/`.
+This starts Vite + Electron together. The app window opens automatically.
 
 ---
 
-# 🏗 Build Distributable App
+# 🏗 Build a Distributable
 
-This creates a standalone installer. End users do **not** need Node or terminal.
-
----
-
-## Build for Windows
-
-Run on Windows:
+Creates a standalone installer — end users don't need Node or terminal.
 
 ```bash
+# Windows (run on Windows)
 npm run dist:win
-```
 
-Output:
-
-```
-release/YT Downloader Setup x.x.x.exe
-```
-
-### ✅ Windows Installation
-
-The Windows installer works normally.  
-Just double-click the `.exe` file and install — no extra steps required.
-
----
-
-## Build for macOS
-
-Run on Mac:
-
-```bash
+# macOS (run on Mac)
 npm run dist:mac
-```
 
-Output:
-
-```
-release/YT Downloader-x.x.x.dmg
-```
-
-### ⚠ macOS Installation (Important)
-
-Because the app is not Apple-notarized, macOS may show:
-
-> “App is damaged and can’t be opened”
-
-After dragging the app into `/Applications`, run this on the target Mac:
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/seedhe download by sanskar.app"
-```
-
-Then open the app normally.
-
-This removes Apple Gatekeeper quarantine from the unsigned build.
-
----
-
-## Build for Current Platform
-
-```bash
+# Current platform
 npm run dist
 ```
+
+Output goes to the `release/` folder:
+- Windows: `release/*Setup*.exe`
+- macOS: `release/*.dmg`
 
 ---
 
 # 🔐 Age-Restricted Videos
 
-When downloading age-restricted content:
+When downloading age-restricted content, the app will show a YouTube sign-in prompt.
 
-- The app opens a Google sign-in window.
-- You log in normally.
-- Electron stores cookies in its session.
-- The app uses those cookies for future downloads.
+- A browser window opens for you to log in
+- Cookies are stored in Electron's session
+- Future downloads use those cookies automatically
 
-If your implementation exports cookies to a `cookies.txt` file, it will typically be stored in:
+To sign out, click the **Signed in** pill in the top-right of the app.
 
-```
-~/Documents/yt-dlp-app/
-```
-
-If not exported manually, cookies remain inside Electron’s internal session storage.
-
-To sign out:
-Use **Clear Cookies** inside app settings.
+> **Note:** On Windows, Chrome and Edge cookies can't be accessed by yt-dlp due to app-bound encryption (Chrome 127+). The app uses **Firefox** cookies instead — so sign in via the in-app prompt, not your browser.
 
 ---
 
 # 🧯 Troubleshooting
 
-### ❌ yt-dlp not found
+### ❌ App won't open on macOS — "damaged or can't be opened"
 
-- Confirm correct file exists:
-  - Windows → `resources/bin/win/yt-dlp.exe`
-  - macOS → `resources/bin/mac/yt-dlp`
-- Re-run binary download steps
+Run the quarantine removal command:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/seedhe download by sanskar.app"
+```
 
 ---
 
-### ❌ ffmpeg not found / no audio
+### ❌ yt-dlp or ffmpeg not found
 
-- Confirm ffmpeg exists in correct folder
-- Ensure file is executable (macOS)
+Confirm the binaries exist in the right place:
+- Windows → `resources/bin/win/yt-dlp.exe` and `ffmpeg.exe`
+- macOS → `resources/bin/mac/yt-dlp` and `ffmpeg`
+
+Re-run `npm run setup:win` or `npm run setup:mac` to re-download them.
+
+---
+
+### ❌ No audio in downloaded video / ffmpeg error
+
+Make sure ffmpeg is present and executable:
 
 ```bash
+# macOS
 chmod +x resources/bin/mac/ffmpeg
 ```
 
 ---
 
-### 🪟 Windows: Antivirus flags installer
+### 🪟 Windows: Antivirus flags the installer
 
-Common false positive for Electron apps using yt-dlp.  
-Add an exclusion for the `release/` folder.
+Common false positive for Electron apps bundling yt-dlp. Add an exclusion for the `release/` folder in your antivirus settings.
 
 ---
 
 ### ❌ Build fails with symlink errors (Windows)
 
-Run terminal as Administrator  
-OR enable Developer Mode in Windows Settings
+Run PowerShell as Administrator, or enable Developer Mode in Windows Settings.
 
 ---
 
