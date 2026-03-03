@@ -110,6 +110,20 @@ function hasValidCookies(cookiePath) {
   }
 }
 
+function hasLikelyYouTubeAuthCookies(cookies) {
+  // These are strong indicators that Google account auth is actually established.
+  const authCookieNames = new Set([
+    "SAPISID",
+    "APISID",
+    "SID",
+    "HSID",
+    "SSID",
+    "__Secure-3PSID",
+    "__Secure-1PSID",
+  ]);
+  return cookies.some((c) => authCookieNames.has(c.name));
+}
+
 function cookiesExist() {
   return hasValidCookies(getCookiesPath()) || hasValidCookies(LEGACY_COOKIES_PATH);
 }
@@ -201,7 +215,9 @@ function openYouTubeLogin() {
         const d = c.domain.startsWith(".") ? c.domain : "." + c.domain;
         return d.includes("youtube.com") || d.includes("google.com");
       });
-      if (!allCookies.length) return false;
+      if (!allCookies.length) {
+        return { saved: false, authenticated: false, count: 0 };
+      }
 
       const cookieLines = [
         "# Netscape HTTP Cookie File",
@@ -234,8 +250,15 @@ function openYouTubeLogin() {
       } catch (err) {
         console.warn("[auth] Failed writing legacy cookies path:", err?.message || err);
       }
-      console.log("[auth] Cookies saved:", allCookies.length, "cookies");
-      return true;
+      const authenticated = hasLikelyYouTubeAuthCookies(allCookies);
+      console.log(
+        "[auth] Cookies saved:",
+        allCookies.length,
+        "cookies",
+        "| authenticated:",
+        authenticated,
+      );
+      return { saved: true, authenticated, count: allCookies.length };
     };
 
     const maybeFinalizeAuth = async (navUrl) => {
@@ -244,8 +267,8 @@ function openYouTubeLogin() {
       const stillOnSignIn = navUrl.includes("accounts.google.com/signin");
       if (!onGoogleOrYouTube || stillOnSignIn) return;
       try {
-        const ok = await tryPersistCookies();
-        if (ok) {
+        const result = await tryPersistCookies();
+        if (result.authenticated) {
           loginWin.close();
           finish(true);
         }
@@ -264,8 +287,8 @@ function openYouTubeLogin() {
     loginWin.on("closed", async () => {
       if (settled) return;
       try {
-        const ok = await tryPersistCookies();
-        finish(ok);
+        const result = await tryPersistCookies();
+        finish(result.authenticated);
       } catch {
         finish(false);
       }
