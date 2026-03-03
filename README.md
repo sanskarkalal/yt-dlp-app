@@ -252,16 +252,34 @@ chmod +x resources/bin/mac/ffmpeg
 
 ---
 
-### 🍎 macOS: “App can’t be opened”
+### 🍎 macOS: “App is damaged” / can’t open
 
-Right click → Open → Open again
+This is Gatekeeper quarantine on unsigned apps. On the target Mac:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/seedhe download by sanskar.app"
+```
+
+Then open the app again.
+
+---
+
+### 🍎 macOS: `Permission denied` for ffmpeg or yt-dlp
+
+If this appears on an older build:
+
+```bash
+chmod +x "/Applications/seedhe download by sanskar.app/Contents/Resources/bin/mac/ffmpeg"
+chmod +x "/Applications/seedhe download by sanskar.app/Contents/Resources/bin/mac/yt-dlp"
+```
+
+Newer mac builds use an `afterPack` hook to set these permissions during packaging.
 
 ---
 
 ### 🪟 Windows: Antivirus flags installer
 
 Common false positive for Electron apps using yt-dlp.
-
 Add an exclusion for the `release/` folder.
 
 ---
@@ -273,16 +291,9 @@ OR enable Developer Mode in Windows Settings
 
 ---
 
-# 📜 License
-
-MIT — use it, modify it, distribute it.
-
-```
-```
-
 ## Windows one-click setup
 
-From project root, double-click `setup-and-install.bat` (or run it in terminal). It will install npm deps, download yt-dlp/ffmpeg, build the Windows installer, and launch the generated setup `.exe`.
+From project root, double-click `setup-and-install.bat` (or run it in terminal).
 
 CLI alternative:
 
@@ -305,28 +316,50 @@ chmod +x setup-and-install-mac.command scripts/setup-and-install-mac.sh
 ./setup-and-install-mac.command
 ```
 
-## GitHub Releases steps
+## Clean macOS release build
 
-1. Bump version in `package.json` (for example `1.0.1`).
-2. Commit all changes and push your branch.
-3. Build installers:
-   - On Windows: `npm run setup:win` (or `npm run dist:win` if binaries already present)
-   - On macOS: `npm run setup:mac` (or `npm run dist:mac` if binaries already present)
-4. Verify artifacts exist in `release/` (`*.exe` and `*.dmg`).
-5. Tag and push:
+Build a fresh mac release and keep only `.dmg` in `release/`:
+
+```bash
+npm run release:mac
+```
+
+## GitHub Releases (Windows + macOS in one release)
+
+1. Bump version in `package.json` (example: `1.0.1`).
+2. Commit and push source changes (`release/` folder should not be committed).
+3. Build Windows installer on Windows:
+
+```powershell
+npm run setup:win
+```
+
+4. Build mac installer on macOS:
+
+```bash
+npm run release:mac
+```
+
+5. Push tag:
 
 ```bash
 git tag v1.0.1
 git push origin v1.0.1
 ```
 
-6. Open GitHub repo -> Releases -> Draft a new release.
-7. Choose tag `v1.0.1`, title it (for example `v1.0.1`), add changelog notes.
-8. Upload files from `release/` (Windows setup `.exe` and macOS `.dmg`).
-9. Publish release.
+6. GitHub UI:
+   - Open repo -> `Releases` -> `Draft a new release`
+   - Select tag `v1.0.1`
+   - Upload `release/*.exe` and publish
+   - Edit the same release and upload `release/*.dmg`
 
-Optional GitHub CLI flow:
+Optional GitHub CLI:
 
 ```bash
-gh release create v1.0.1 release/*.exe release/*.dmg --title "v1.0.1" --notes "Bug fixes and installer updates"
+gh release create v1.0.1 release/*.exe --title "v1.0.1" --notes "Release notes"
+gh release upload v1.0.1 release/*.dmg --clobber
 ```
+
+# 📜 License
+
+MIT — use it, modify it, distribute it.

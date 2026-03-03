@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "setup:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-and-install.ps1",
     "setup:mac": "bash ./scripts/setup-and-install-mac.sh",
+    "release:mac": "bash ./scripts/release-mac.sh",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac"
@@ -17,6 +18,7 @@
   "build": {
     "appId": "com.ytdlp.app",
     "productName": "seedhe download by sanskar",
+    "afterPack": "scripts/after-pack.cjs",
     "directories": {
       "output": "release"
     },
