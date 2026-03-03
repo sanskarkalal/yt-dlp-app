@@ -18,4 +18,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("cookies-status", (_, ok) => cb(ok));
   },
   downloadThumbnail: (opts) => ipcRenderer.invoke("download-thumbnail", opts),
+  getHistory: () => ipcRenderer.invoke("get-history"),
+  addHistory: (entry) => ipcRenderer.invoke("add-history", entry),
+  clearHistory: () => ipcRenderer.invoke("clear-history"),
+  deleteHistoryEntry: (id) => ipcRenderer.invoke("delete-history-entry", id),
+  showInFolder: (filePath) => ipcRenderer.invoke("show-in-folder", filePath),
+  deleteFile: (filePath) => ipcRenderer.invoke("delete-file", filePath),
 });

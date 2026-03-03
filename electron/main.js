@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
@@ -13,13 +13,9 @@ const __dirname = path.dirname(__filename);
 const isWin = process.platform === "win32";
 const isMac = process.platform === "darwin";
 
-// --- Resolve bundled binary paths ---
 function getBinariesDir() {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, "bin");
-  } else {
-    return path.join(__dirname, "..", "resources", "bin");
-  }
+  if (app.isPackaged) return path.join(process.resourcesPath, "bin");
+  return path.join(__dirname, "..", "resources", "bin");
 }
 
 function getYtDlpPath() {
@@ -36,19 +32,17 @@ function getFfmpegDir() {
   return path.join(binDir, "linux");
 }
 
-const LEGACY_COOKIES_PATH = path.join(
-  os.homedir(),
-  "Documents",
-  "yt-dlp-app",
-  "cookies.txt",
-);
+const LEGACY_COOKIES_PATH = path.join(os.homedir(), "Documents", "yt-dlp-app", "cookies.txt");
+
 function getCookiesPath() {
-  // Keep auth state in app-managed storage on mac dist builds (no Documents permission friction).
   return path.join(app.getPath("userData"), "cookies.txt");
 }
 
+function getHistoryPath() {
+  return path.join(app.getPath("userData"), "history.json");
+}
+
 function resolveJsRuntimeArgs() {
-  // yt-dlp expects runtime names here, not binary paths.
   return ["--js-runtimes", "node"];
 }
 
@@ -62,23 +56,14 @@ function ensureNodeShim() {
 
   if (isWin) {
     const shimPath = path.join(shimDir, "node.cmd");
-    const cmd = [
-      "@echo off",
-      "set ELECTRON_RUN_AS_NODE=1",
-      `"${process.execPath}" %*`,
-      "",
-    ].join("\r\n");
+    const cmd = ["@echo off", "set ELECTRON_RUN_AS_NODE=1", `"${process.execPath}" %*`, ""].join("\r\n");
     fs.writeFileSync(shimPath, cmd, "utf8");
     return shimDir;
   }
 
   const shimPath = path.join(shimDir, "node");
   const escapedExecPath = process.execPath.replace(/"/g, '\\"');
-  const script = [
-    "#!/bin/sh",
-    `ELECTRON_RUN_AS_NODE=1 exec "${escapedExecPath}" "$@"`,
-    "",
-  ].join("\n");
+  const script = ["#!/bin/sh", `ELECTRON_RUN_AS_NODE=1 exec "${escapedExecPath}" "$@"`, ""].join("\n");
   fs.writeFileSync(shimPath, script, "utf8");
   fs.chmodSync(shimPath, 0o755);
   return shimDir;
@@ -100,27 +85,13 @@ function hasValidCookies(cookiePath) {
   if (!fs.existsSync(cookiePath)) return false;
   try {
     const content = fs.readFileSync(cookiePath, "utf8");
-    const lines = content
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    return lines.some((line) => !line.startsWith("#") && line.split("\t").length >= 7);
-  } catch {
-    return false;
-  }
+    const lines = content.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    return lines.some((l) => !l.startsWith("#") && l.split("\t").length >= 7);
+  } catch { return false; }
 }
 
 function hasLikelyYouTubeAuthCookies(cookies) {
-  // These are strong indicators that Google account auth is actually established.
-  const authCookieNames = new Set([
-    "SAPISID",
-    "APISID",
-    "SID",
-    "HSID",
-    "SSID",
-    "__Secure-3PSID",
-    "__Secure-1PSID",
-  ]);
+  const authCookieNames = new Set(["SAPISID","APISID","SID","HSID","SSID","__Secure-3PSID","__Secure-1PSID"]);
   return cookies.some((c) => authCookieNames.has(c.name));
 }
 
@@ -165,19 +136,13 @@ function createWindow() {
 app.whenReady().then(() => {
   const win = createWindow();
   win.setMenu(null);
-
   const cookiesDir = path.dirname(getCookiesPath());
-  if (!fs.existsSync(cookiesDir)) {
-    fs.mkdirSync(cookiesDir, { recursive: true });
-  }
-
+  if (!fs.existsSync(cookiesDir)) fs.mkdirSync(cookiesDir, { recursive: true });
   console.log("[bin] yt-dlp path:", getYtDlpPath());
   console.log("[bin] yt-dlp exists:", fs.existsSync(getYtDlpPath()));
 });
 
-app.on("window-all-closed", () => {
-  if (!isMac) app.quit();
-});
+app.on("window-all-closed", () => { if (!isMac) app.quit(); });
 
 // --- YouTube Login Window ---
 function openYouTubeLogin() {
@@ -188,127 +153,73 @@ function openYouTubeLogin() {
       title: "Sign in to YouTube",
       parent: mainWindow,
       modal: true,
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
+      webPreferences: { contextIsolation: true, nodeIntegration: false },
     });
 
-    loginWin.loadURL(
-      "https://accounts.google.com/signin/v2/identifier?service=youtube",
-    );
+    loginWin.loadURL("https://accounts.google.com/signin/v2/identifier?service=youtube");
 
     let settled = false;
-    const finish = (ok) => {
-      if (settled) return;
-      settled = true;
-      resolve(ok);
-    };
+    const finish = (ok) => { if (settled) return; settled = true; resolve(ok); };
 
     const tryPersistCookies = async () => {
       console.log("[auth] Attempting to extract cookies...");
       await loginWin.webContents.session.flushStorageData();
-      const allSessionCookies = await loginWin.webContents.session.cookies.get(
-        {},
-      );
+      const allSessionCookies = await loginWin.webContents.session.cookies.get({});
       const allCookies = allSessionCookies.filter((c) => {
         const d = c.domain.startsWith(".") ? c.domain : "." + c.domain;
-        return d.includes("youtube.com") || d.includes("google.com");
+        return d.includes(".google.com") || d.includes(".youtube.com");
       });
-      if (!allCookies.length) {
-        return { saved: false, authenticated: false, count: 0 };
-      }
 
-      const cookieLines = [
-        "# Netscape HTTP Cookie File",
-        "# This file was generated by yt-dlp-app",
-        "",
-      ];
-
-      for (const cookie of allCookies) {
-        if (!cookie.name || cookie.value === undefined) continue;
-        const bareDomain = cookie.domain.startsWith(".")
-          ? cookie.domain
-          : "." + cookie.domain;
-        const domain = cookie.httpOnly ? `#HttpOnly_${bareDomain}` : bareDomain;
-        const includeSubdomains = bareDomain.startsWith(".") ? "TRUE" : "FALSE";
-        const secure = cookie.secure ? "TRUE" : "FALSE";
-        const expiry = cookie.expirationDate
-          ? Math.floor(cookie.expirationDate)
-          : Math.floor(Date.now() / 1000) + 86400 * 365;
-        const cookiePath = cookie.path || "/";
-        cookieLines.push(
-          `${domain}\t${includeSubdomains}\t${cookiePath}\t${secure}\t${expiry}\t${cookie.name}\t${cookie.value}`,
-        );
-      }
-
-      fs.writeFileSync(getCookiesPath(), cookieLines.join("\n"));
-      try {
-        const legacyDir = path.dirname(LEGACY_COOKIES_PATH);
-        if (!fs.existsSync(legacyDir)) fs.mkdirSync(legacyDir, { recursive: true });
-        fs.writeFileSync(LEGACY_COOKIES_PATH, cookieLines.join("\n"));
-      } catch (err) {
-        console.warn("[auth] Failed writing legacy cookies path:", err?.message || err);
-      }
       const authenticated = hasLikelyYouTubeAuthCookies(allCookies);
-      console.log(
-        "[auth] Cookies saved:",
-        allCookies.length,
-        "cookies",
-        "| authenticated:",
-        authenticated,
-      );
-      return { saved: true, authenticated, count: allCookies.length };
+
+      if (allCookies.length > 0) {
+        const lines = ["# Netscape HTTP Cookie File"];
+        for (const c of allCookies) {
+          const domain = c.domain.startsWith(".") ? c.domain : "." + c.domain;
+          const includeSubdomains = domain.startsWith(".") ? "TRUE" : "FALSE";
+          const secure = c.secure ? "TRUE" : "FALSE";
+          const expiry = c.expirationDate ? Math.floor(c.expirationDate) : 0;
+          lines.push([domain, includeSubdomains, c.path || "/", secure, expiry, c.name, c.value].join("\t"));
+        }
+        fs.writeFileSync(getCookiesPath(), lines.join("\n") + "\n", "utf8");
+        console.log(`[auth] Wrote ${allCookies.length} cookies. Authenticated: ${authenticated}`);
+      }
+
+      return { authenticated };
     };
 
     const maybeFinalizeAuth = async (navUrl) => {
-      const onGoogleOrYouTube =
-        navUrl.includes("youtube.com") || navUrl.includes("google.com");
-      const stillOnSignIn = navUrl.includes("accounts.google.com/signin");
-      if (!onGoogleOrYouTube || stillOnSignIn) return;
       try {
-        const result = await tryPersistCookies();
-        if (result.authenticated) {
-          loginWin.close();
-          finish(true);
+        if (
+          navUrl.includes("myaccount.google.com") ||
+          navUrl.includes("youtube.com") ||
+          navUrl.includes("accounts.google.com/signin/oauth") ||
+          navUrl.includes("accounts.google.com/o/oauth2")
+        ) {
+          const result = await tryPersistCookies();
+          if (result.authenticated) { finish(true); loginWin.close(); }
         }
-      } catch (err) {
-        console.error("[auth] Failed to extract cookies:", err);
-      }
+      } catch (err) { console.error("[auth] Failed to extract cookies:", err); }
     };
 
-    loginWin.webContents.on("did-navigate", async (_event, navUrl) => {
-      await maybeFinalizeAuth(navUrl);
-    });
-    loginWin.webContents.on("did-navigate-in-page", async (_event, navUrl) => {
-      await maybeFinalizeAuth(navUrl);
-    });
-
+    loginWin.webContents.on("did-navigate", async (_e, navUrl) => { await maybeFinalizeAuth(navUrl); });
+    loginWin.webContents.on("did-navigate-in-page", async (_e, navUrl) => { await maybeFinalizeAuth(navUrl); });
     loginWin.on("closed", async () => {
       if (settled) return;
-      try {
-        const result = await tryPersistCookies();
-        finish(result.authenticated);
-      } catch {
-        finish(false);
-      }
+      try { const result = await tryPersistCookies(); finish(result.authenticated); }
+      catch { finish(false); }
     });
   });
 }
 
-// --- IPC: Open YouTube login ---
 ipcMain.handle("open-youtube-login", async () => {
   const success = await openYouTubeLogin();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("cookies-status", success);
-  }
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("cookies-status", success);
   return success;
 });
 
-// --- Check cookies status ---
 ipcMain.handle("get-cookies-status", () => cookiesExist());
 
-// --- Clear cookies ---
 ipcMain.handle("clear-cookies", () => {
   const p = getCookiesPath();
   if (fs.existsSync(p)) fs.unlinkSync(p);
@@ -321,95 +232,52 @@ ipcMain.handle("get-video-info", async (_, url) => {
   return new Promise((resolve, reject) => {
     let output = "";
     let errorOutput = "";
-    const args = [
-      "--dump-json",
-      "--no-playlist",
-      ...resolveJsRuntimeArgs(),
-      ...cookieArgs(),
-      url,
-    ];
+    const args = ["--dump-json", "--no-playlist", ...resolveJsRuntimeArgs(), ...cookieArgs(), url];
     const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
 
     proc.stdout.on("data", (d) => (output += d.toString()));
-    proc.stderr.on("data", (d) => {
-      errorOutput += d.toString();
-      console.error(d.toString());
-    });
-    proc.on("error", (err) => {
-      reject(new Error(`Failed to start yt-dlp: ${err.message}`));
-    });
+    proc.stderr.on("data", (d) => { errorOutput += d.toString(); console.error(d.toString()); });
+    proc.on("error", (err) => reject(new Error(`Failed to start yt-dlp: ${err.message}`)));
     proc.on("close", (code) => {
       if (code !== 0) {
         const isAgeRestricted =
           errorOutput.includes("Sign in to confirm your age") ||
           errorOutput.includes("age-restricted") ||
           errorOutput.includes("inappropriate for some users");
-        if (isAgeRestricted) {
-          return resolve({
-            ageRestricted: true,
-          });
-        }
+        if (isAgeRestricted) return resolve({ ageRestricted: true });
         return reject(new Error(`yt-dlp failed: ${errorOutput.slice(0, 300)}`));
       }
       try {
         const data = JSON.parse(output);
-
-        // Collect every video format with real metadata
         const rawFormats = [];
         const allVideoFormats = data.formats
           .filter((f) => f.vcodec !== "none" && f.vcodec !== null && f.height)
-          .sort(
-            (a, b) =>
-              b.height - a.height ||
-              (b.vbr || b.tbr || 0) - (a.vbr || a.tbr || 0),
-          );
+          .sort((a, b) => b.height - a.height || (b.vbr || b.tbr || 0) - (a.vbr || a.tbr || 0));
 
         for (const f of allVideoFormats) {
           const codecFull = f.vcodec || "";
-          const codecShort = codecFull.startsWith("avc")
-            ? "H264"
-            : codecFull.startsWith("hvc") || codecFull.startsWith("hev")
-              ? "H265"
-              : codecFull.startsWith("vp9")
-                ? "VP9"
-                : codecFull.startsWith("vp08")
-                  ? "VP8"
-                  : codecFull.startsWith("av01")
-                    ? "AV1"
-                    : codecFull.split(".")[0].toUpperCase();
-          const vbr = f.vbr ? Math.round(f.vbr) : null;
-          const tbr = f.tbr ? Math.round(f.tbr) : null;
-          const bitrate = vbr || (f.acodec === "none" ? tbr : null); // tbr on muxed = total, misleading
-          const hasMuxedAudio = f.acodec && f.acodec !== "none";
-
-          rawFormats.push({
-            format_id: f.format_id,
-            // If video-only, tell the download handler to merge with best audio
-            download_id: hasMuxedAudio
-              ? f.format_id
-              : `${f.format_id}+bestaudio`,
-            height: f.height,
-            width: f.width,
-            fps: f.fps || null,
-            codec: codecShort,
-            bitrate, // null if unknown
-            ext: f.ext || "",
-            hasMuxedAudio,
-          });
+          const codecShort = codecFull.startsWith("avc") ? "H264"
+            : codecFull.startsWith("hvc") || codecFull.startsWith("hev") ? "H265"
+            : codecFull.startsWith("vp9") ? "VP9"
+            : codecFull.startsWith("av01") ? "AV1"
+            : codecFull.toUpperCase().slice(0, 6);
+          const bitrate = f.vbr ? Math.round(f.vbr) : f.tbr ? Math.round(f.tbr) : null;
+          const key = `${f.height}-${codecShort}-${bitrate}-${f.format_id}`;
+          rawFormats.push({ format_id: f.format_id, height: f.height, width: f.width, codec: codecShort, bitrate, fps: f.fps ? Math.round(f.fps) : null, ext: f.ext, key });
         }
 
-        // Keep legacy `formats` for backwards compat (unused by new UI but harmless)
         const formats = [];
+        const seen = new Set();
+        for (const f of rawFormats) {
+          const k = `${f.height}-${f.codec}-${f.bitrate}`;
+          if (!seen.has(k)) { seen.add(k); formats.push(f); }
+        }
 
-        // --- NEW: Extract audio tracks ---
-        const audioOnlyRaw = data.formats.filter(
-          (f) => f.vcodec === "none" && f.acodec && f.acodec !== "none",
-        );
+        const audioTracks = [];
         const seenAudio = new Set();
-        const audioTracks = [
-          { format_id: "bestaudio/best", label: "Best available" },
-        ];
-        for (const f of audioOnlyRaw) {
+        const allAudioFormats = data.formats.filter((f) => f.acodec !== "none" && f.acodec != null && f.vcodec === "none");
+
+        for (const f of allAudioFormats) {
           const lang = f.language || null;
           const note = f.format_note || "";
           const abr = f.abr ? Math.round(f.abr) : null;
@@ -418,34 +286,17 @@ ipcMain.handle("get-video-info", async (_, url) => {
             seenAudio.add(key);
             let label = "";
             if (lang) {
-              try {
-                label = new Intl.DisplayNames(["en"], { type: "language" }).of(
-                  lang,
-                );
-              } catch {
-                label = lang.toUpperCase();
-              }
+              try { label = new Intl.DisplayNames(["en"], { type: "language" }).of(lang); }
+              catch { label = lang.toUpperCase(); }
               if (note && note !== "Default") label += ` (${note})`;
-            } else {
-              label = note || (f.acodec || "").toUpperCase();
-            }
+            } else { label = note || (f.acodec || "").toUpperCase(); }
             if (abr) label += ` · ${abr}kbps`;
-            audioTracks.push({
-              format_id: f.format_id,
-              label,
-              language: lang,
-              abr,
-            });
+            audioTracks.push({ format_id: f.format_id, label, language: lang, abr });
           }
         }
 
-        // Derive available containers: native exts + always include mp4 + mkv
-        const nativeExts = [
-          ...new Set(rawFormats.map((f) => f.ext).filter(Boolean)),
-        ];
-        const availableContainers = [
-          ...new Set([...nativeExts, "mp4", "mkv"]),
-        ].sort();
+        const nativeExts = [...new Set(rawFormats.map((f) => f.ext).filter(Boolean))];
+        const availableContainers = [...new Set([...nativeExts, "mp4", "mkv"])].sort();
 
         resolve({
           title: data.title,
@@ -458,14 +309,11 @@ ipcMain.handle("get-video-info", async (_, url) => {
           audioTracks,
           availableContainers,
         });
-      } catch (e) {
-        reject(new Error("Failed to parse video info"));
-      }
+      } catch (e) { reject(new Error("Failed to parse video info")); }
     });
   });
 });
 
-// --- Select Folder ---
 ipcMain.handle("select-folder", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showOpenDialog(win, {
@@ -475,144 +323,151 @@ ipcMain.handle("select-folder", async (event) => {
   return result.canceled ? null : result.filePaths[0];
 });
 
-// --- Get Downloads Path ---
-ipcMain.handle("get-downloads-path", () =>
-  path.join(os.homedir(), "Downloads"),
-);
+ipcMain.handle("get-downloads-path", () => path.join(os.homedir(), "Downloads"));
 
 // --- Download Thumbnail ---
-ipcMain.handle(
-  "download-thumbnail",
-  async (_, { thumbnailUrl, title, savePath }) => {
-    return new Promise((resolve, reject) => {
-      const sanitized = title.replace(/[/\\?%*:|"<>]/g, "-").trim();
-      const dest = path.join(savePath, `${sanitized}.jpg`);
-      const file = fs.createWriteStream(dest);
-      const client = thumbnailUrl.startsWith("https") ? https : http;
-      client
-        .get(thumbnailUrl, (res) => {
-          res.pipe(file);
-          file.on("finish", () => {
-            file.close();
-            resolve(dest);
-          });
-        })
-        .on("error", (err) => {
-          fs.unlink(dest, () => {});
-          reject(err);
-        });
-    });
-  },
-);
+ipcMain.handle("download-thumbnail", async (_, { thumbnailUrl, title, savePath }) => {
+  return new Promise((resolve, reject) => {
+    const sanitized = title.replace(/[/\\?%*:|"<>]/g, "-").trim();
+    const dest = path.join(savePath, `${sanitized}.jpg`);
+    const file = fs.createWriteStream(dest);
+    const client = thumbnailUrl.startsWith("https") ? https : http;
+    client.get(thumbnailUrl, (res) => {
+      res.pipe(file);
+      file.on("finish", () => { file.close(); resolve(dest); });
+    }).on("error", (err) => { fs.unlink(dest, () => {}); reject(err); });
+  });
+});
 
 // --- Download ---
-ipcMain.handle(
-  "download",
-  async (
-    event,
-    {
-      url,
-      formatId,
-      container,
-      savePath,
-      clipStart,
-      clipEnd,
-      audioOnly,
-      audioQuality,
-      audioTrackId, // NEW
-      audioContainer, // NEW
-    },
-  ) => {
-    return new Promise((resolve, reject) => {
-      const win = BrowserWindow.fromWebContents(event.sender);
+ipcMain.handle("download", async (event, { url, formatId, container, savePath, clipStart, clipEnd, audioOnly, audioQuality, audioTrackId, audioContainer }) => {
+  return new Promise((resolve, reject) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    let args;
 
-      let args;
+    if (audioOnly) {
+      const quality = audioQuality || "192";
+      const trackSelector = audioTrackId || "bestaudio/best";
+      const outFormat = audioContainer || "mp3";
+      args = [
+        "-f", trackSelector,
+        "--extract-audio",
+        "--audio-format", outFormat,
+        "--audio-quality", `${quality}k`,
+        "--ffmpeg-location", getFfmpegDir(),
+        ...resolveJsRuntimeArgs(),
+        ...cookieArgs(),
+        ...(clipStart && clipEnd ? ["--download-sections", `*${clipStart}-${clipEnd}`, "--force-keyframes-at-cuts"] : []),
+        "-o", path.join(savePath, "%(title)s.%(ext)s"),
+        "--newline", url,
+      ];
+    } else {
+      args = [
+        "-f", formatId,
+        "--merge-output-format", container,
+        "--ffmpeg-location", getFfmpegDir(),
+        ...resolveJsRuntimeArgs(),
+        ...cookieArgs(),
+        ...(clipStart && clipEnd ? ["--download-sections", `*${clipStart}-${clipEnd}`, "--force-keyframes-at-cuts"] : []),
+        "-o", path.join(savePath, "%(title)s.%(ext)s"),
+        "--newline", url,
+      ];
+    }
 
-      if (audioOnly) {
-        // Audio-only download
-        const quality = audioQuality || "192";
-        const trackSelector = audioTrackId || "bestaudio/best"; // NEW
-        const outFormat = audioContainer || "mp3"; // NEW
-        args = [
-          "-f",
-          trackSelector,
-          "--extract-audio",
-          "--audio-format",
-          outFormat,
-          "--audio-quality",
-          `${quality}k`,
-          "--ffmpeg-location",
-          getFfmpegDir(),
-          ...resolveJsRuntimeArgs(),
-          ...cookieArgs(),
-          ...(clipStart && clipEnd
-            ? [
-                "--download-sections",
-                `*${clipStart}-${clipEnd}`,
-                "--force-keyframes-at-cuts",
-              ]
-            : []),
-          "-o",
-          path.join(savePath, "%(title)s.%(ext)s"),
-          "--newline",
-          url,
-        ];
-      } else {
-        // Video download — unchanged
-        args = [
-          "-f",
-          formatId,
-          "--merge-output-format",
-          container,
-          "--ffmpeg-location",
-          getFfmpegDir(),
-          ...resolveJsRuntimeArgs(),
-          ...cookieArgs(),
-          ...(clipStart && clipEnd
-            ? [
-                "--download-sections",
-                `*${clipStart}-${clipEnd}`,
-                "--force-keyframes-at-cuts",
-              ]
-            : []),
-          "-o",
-          path.join(savePath, "%(title)s.%(ext)s"),
-          "--newline",
-          url,
-        ];
+    const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
+    activeDownload = proc;
+
+    let outputFilePath = null;
+
+    proc.stdout.on("data", (data) => {
+      const line = data.toString();
+      console.log(line);
+
+      const destMatch = line.match(/\[download\] Destination:\s+(.+)/);
+      if (destMatch) outputFilePath = destMatch[1].trim();
+
+      const mergeMatch = line.match(/\[Merger\] Merging formats into "(.+)"/);
+      if (mergeMatch) outputFilePath = mergeMatch[1].trim();
+
+      const audioMatch = line.match(/\[ExtractAudio\] Destination:\s+(.+)/);
+      if (audioMatch) outputFilePath = audioMatch[1].trim();
+
+      const match = line.match(/\[download\]\s+([\d.]+)%/);
+      if (match) {
+        const percent = Math.round(parseFloat(match[1]));
+        win.webContents.send("download-progress", percent);
       }
-
-      const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
-      activeDownload = proc;
-
-      proc.stdout.on("data", (data) => {
-        const line = data.toString();
-        console.log(line);
-        const match = line.match(/\[download\]\s+([\d.]+)%/);
-        if (match) {
-          const percent = Math.round(parseFloat(match[1]));
-          win.webContents.send("download-progress", percent);
-        }
-      });
-
-      proc.stderr.on("data", (d) => console.error(d.toString()));
-      proc.on("error", (err) => {
-        activeDownload = null;
-        reject(new Error(`Failed to start yt-dlp: ${err.message}`));
-      });
-      proc.on("close", (code) => {
-        activeDownload = null;
-        if (code === 0) resolve();
-        else reject(new Error(code === null ? "cancel" : "Download failed"));
-      });
     });
-  },
-);
 
-// --- Cancel Download ---
+    proc.stderr.on("data", (d) => console.error(d.toString()));
+    proc.on("error", (err) => { activeDownload = null; reject(new Error(`Failed to start yt-dlp: ${err.message}`)); });
+    proc.on("close", (code) => {
+      activeDownload = null;
+      if (code === 0) resolve({ filePath: outputFilePath });
+      else reject(new Error(code === null ? "cancel" : "Download failed"));
+    });
+  });
+});
+
 ipcMain.handle("cancel-download", () => {
-  if (activeDownload) {
-    activeDownload.kill("SIGTERM");
-    activeDownload = null;
+  if (activeDownload) { activeDownload.kill("SIGTERM"); activeDownload = null; }
+});
+
+// --- History: Get ---
+ipcMain.handle("get-history", () => {
+  const p = getHistoryPath();
+  if (!fs.existsSync(p)) return [];
+  try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return []; }
+});
+
+// --- History: Add ---
+ipcMain.handle("add-history", (_, entry) => {
+  const p = getHistoryPath();
+  let history = [];
+  if (fs.existsSync(p)) { try { history = JSON.parse(fs.readFileSync(p, "utf8")); } catch {} }
+  history.unshift({ ...entry, id: Date.now() });
+  if (history.length > 200) history = history.slice(0, 200);
+  fs.writeFileSync(p, JSON.stringify(history, null, 2), "utf8");
+  return true;
+});
+
+// --- History: Delete single entry ---
+ipcMain.handle("delete-history-entry", (_, id) => {
+  const p = getHistoryPath();
+  if (!fs.existsSync(p)) return true;
+  try {
+    let history = JSON.parse(fs.readFileSync(p, "utf8"));
+    history = history.filter((e) => e.id !== id);
+    fs.writeFileSync(p, JSON.stringify(history, null, 2), "utf8");
+  } catch {}
+  return true;
+});
+
+// --- History: Clear all ---
+ipcMain.handle("clear-history", () => {
+  const p = getHistoryPath();
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+  return true;
+});
+
+// --- Show file in Finder/Explorer ---
+ipcMain.handle("show-in-folder", (_, filePath) => {
+  if (filePath && fs.existsSync(filePath)) {
+    shell.showItemInFolder(filePath);
+  } else {
+    shell.openPath(filePath ? path.dirname(filePath) : os.homedir());
   }
+  return true;
+});
+
+// --- Delete file from disk ---
+ipcMain.handle("delete-file", (_, filePath) => {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      shell.trashItem(filePath); // moves to trash, not permanent delete
+    }
+  } catch (err) {
+    console.error("[delete-file] Error:", err);
+  }
+  return true;
 });

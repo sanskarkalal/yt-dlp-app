@@ -1,85 +1,91 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import iconPng from "./assets/icon.png";
-const formatDuration = (seconds) => {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
+
+function formatDuration(secs) {
+  if (!secs) return "0:00";
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = Math.floor(secs % 60);
   if (h > 0)
     return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
-};
+}
 
-const isValidTime = (t) => /^(\d{1,2}:)?\d{1,2}:\d{2}$/.test(t.trim());
-
-// Convert "MM:SS" or "HH:MM:SS" to seconds
-const timeToSecs = (t) => {
-  if (!t || !isValidTime(t)) return null;
-  const parts = t.trim().split(":").map(Number);
+function timeToSecs(t) {
+  if (!t) return null;
+  const parts = t.split(":").map(Number);
+  if (parts.some(isNaN)) return null;
   if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return parts[0] * 3600 + parts[1] * 60 + parts[2];
-};
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return null;
+}
 
-// Convert seconds to "H:MM:SS" or "M:SS"
-const secsToTime = (s) => {
-  const totalSecs = Math.round(s);
-  const h = Math.floor(totalSecs / 3600);
-  const m = Math.floor((totalSecs % 3600) / 60);
-  const sec = totalSecs % 60;
+function secsToTime(s) {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
   if (h > 0)
     return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   return `${m}:${String(sec).padStart(2, "0")}`;
-};
+}
 
-// Dual-thumb range slider component
+function isValidTime(t) {
+  return /^\d+:\d{2}(:\d{2})?$/.test(t.trim());
+}
+
+function formatDate(ts) {
+  const d = new Date(ts);
+  return (
+    d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }) +
+    " · " +
+    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+  );
+}
+
 function RangeSlider({ min, max, startVal, endVal, onChange }) {
   const trackRef = useRef(null);
-  const dragging = useRef(null); // "start" | "end" | null
+  const dragging = useRef(null);
 
   const clamp = (v) => Math.max(min, Math.min(max, v));
+  const toPercent = (v) => ((v - min) / (max - min)) * 100;
 
-  const posFromEvent = (e) => {
+  const getVal = (e) => {
     const rect = trackRef.current.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    return clamp(min + ((clientX - rect.left) / rect.width) * (max - min));
+    const ratio = (e.clientX - rect.left) / rect.width;
+    return clamp(min + ratio * (max - min));
   };
 
   const onMouseDown = (thumb) => (e) => {
     e.preventDefault();
     dragging.current = thumb;
-  };
-
-  useEffect(() => {
-    const onMove = (e) => {
-      if (!dragging.current || !trackRef.current) return;
-      const val = posFromEvent(e);
+    const move = (ev) => {
+      const v = getVal(ev);
       if (dragging.current === "start") {
-        onChange(Math.min(val, endVal - 1), endVal);
+        onChange(Math.min(v, endVal - 1), endVal);
       } else {
-        onChange(startVal, Math.max(val, startVal + 1));
+        onChange(startVal, Math.max(v, startVal + 1));
       }
     };
-    const onUp = () => {
+    const up = () => {
       dragging.current = null;
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    window.addEventListener("touchmove", onMove);
-    window.addEventListener("touchend", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      window.removeEventListener("touchmove", onMove);
-      window.removeEventListener("touchend", onUp);
-    };
-  });
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
 
-  const startPct = ((startVal - min) / (max - min)) * 100;
-  const endPct = ((endVal - min) / (max - min)) * 100;
+  const startPct = toPercent(startVal);
+  const endPct = toPercent(endVal);
 
   return (
     <div
       ref={trackRef}
-      className="relative h-5 flex items-center select-none cursor-default"
+      className="relative h-6 flex items-center cursor-pointer select-none"
     >
       {/* Track background */}
       <div className="absolute inset-x-0 h-1 rounded-full bg-white/10" />
@@ -108,6 +114,320 @@ function RangeSlider({ min, max, startVal, endVal, onChange }) {
   );
 }
 
+// ─── History Drawer ────────────────────────────────────────────────────────────
+function HistoryDrawer({ open, onClose }) {
+  const [history, setHistory] = useState([]);
+  const [clearing, setClearing] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+
+  useEffect(() => {
+    if (open) window.electronAPI.getHistory().then(setHistory);
+  }, [open]);
+
+  const handleClearAll = async () => {
+    setClearing(true);
+    await window.electronAPI.clearHistory();
+    setHistory([]);
+    setClearing(false);
+  };
+
+  const handleDeleteEntry = async (entry) => {
+    setDeletingId(entry.id);
+    if (entry.filePath) await window.electronAPI.deleteFile(entry.filePath);
+    await window.electronAPI.deleteHistoryEntry(entry.id);
+    setHistory((prev) => prev.filter((e) => e.id !== entry.id));
+    setDeletingId(null);
+  };
+
+  const typeBadge = (type) => {
+    const map = {
+      video: {
+        label: "Video",
+        bg: "rgba(124,58,237,0.15)",
+        border: "rgba(124,58,237,0.35)",
+        color: "#a78bfa",
+      },
+      audio: {
+        label: "Audio",
+        bg: "rgba(236,72,153,0.15)",
+        border: "rgba(236,72,153,0.35)",
+        color: "#f472b6",
+      },
+      thumbnail: {
+        label: "Thumb",
+        bg: "rgba(245,158,11,0.15)",
+        border: "rgba(245,158,11,0.35)",
+        color: "#fbbf24",
+      },
+      clip: {
+        label: "Clip",
+        bg: "rgba(16,185,129,0.15)",
+        border: "rgba(16,185,129,0.35)",
+        color: "#34d399",
+      },
+    };
+    const s = map[type] || map.video;
+    return (
+      <span
+        className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
+        style={{ background: s.bg, borderColor: s.border, color: s.color }}
+      >
+        {s.label}
+      </span>
+    );
+  };
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 transition-opacity duration-300"
+        style={{
+          background: "rgba(0,0,0,0.5)",
+          opacity: open ? 1 : 0,
+          pointerEvents: open ? "auto" : "none",
+        }}
+        onClick={onClose}
+      />
+
+      {/* Drawer */}
+      <div
+        className="fixed top-0 right-0 h-full z-50 flex flex-col"
+        style={{
+          width: "380px",
+          background: "linear-gradient(180deg, #0f0f1a 0%, #0a0a0f 100%)",
+          borderLeft: "1px solid rgba(255,255,255,0.08)",
+          transform: open ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+          boxShadow: open ? "-20px 0 60px rgba(0,0,0,0.6)" : "none",
+        }}
+      >
+        {/* Drawer Header */}
+        <div
+          className="flex items-center justify-between px-5 flex-shrink-0"
+          style={{
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            paddingTop: "52px",
+            paddingBottom: "14px",
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <svg
+              className="w-4 h-4 text-white/40"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span className="text-sm font-semibold text-white/70">History</span>
+            {history.length > 0 && (
+              <button
+                onClick={handleClearAll}
+                disabled={clearing}
+                title="Clear all history"
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-lg transition-all duration-200 disabled:opacity-40"
+                style={{
+                  background: "rgba(220,38,38,0.12)",
+                  border: "1px solid rgba(220,38,38,0.35)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(220,38,38,0.22)";
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(220,38,38,0.12)";
+                  e.currentTarget.style.transform = "translateY(0px)";
+                }}
+              >
+                {clearing ? "⏳" : "🧹"}
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              title="Close"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-lg transition-all duration-200"
+              style={{
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.12)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.12)";
+                e.currentTarget.style.transform = "translateY(-1px)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+                e.currentTarget.style.transform = "translateY(0px)";
+              }}
+            >
+              ❌
+            </button>
+          </div>
+        </div>
+
+        {/* List */}
+        <div className="flex-1 overflow-y-auto scrollbar-hide px-4 py-3 space-y-3">
+          {history.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-white/20 pb-16">
+              <svg
+                className="w-10 h-10"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              <p className="text-sm">No downloads yet</p>
+            </div>
+          ) : (
+            history.map((entry) => (
+              <div
+                key={entry.id}
+                className="rounded-xl overflow-hidden"
+                style={{
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.07)",
+                }}
+              >
+                {/* Card top */}
+                <div className="flex gap-3 p-3">
+                  {entry.thumbnail ? (
+                    <img
+                      src={entry.thumbnail}
+                      alt=""
+                      className="w-20 h-12 object-cover rounded-lg flex-shrink-0"
+                      style={{ background: "rgba(255,255,255,0.05)" }}
+                      onError={(e) => {
+                        e.target.style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <div
+                      className="w-20 h-12 rounded-lg flex-shrink-0 flex items-center justify-center"
+                      style={{ background: "rgba(255,255,255,0.05)" }}
+                    >
+                      <svg
+                        className="w-5 h-5 text-white/20"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                        />
+                      </svg>
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0 flex flex-col justify-between">
+                    <p className="text-xs font-medium text-white/80 line-clamp-2 leading-snug">
+                      {entry.title}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      {typeBadge(entry.type)}
+                      {entry.quality && (
+                        <span className="text-[10px] text-white/25 font-mono">
+                          {entry.quality}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card bottom: date + actions */}
+                <div
+                  className="flex items-center justify-between px-3 py-2 gap-2"
+                  style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+                >
+                  <span className="text-[10px] text-white/25 font-mono truncate">
+                    {formatDate(entry.id)}
+                  </span>
+
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {/* Show in Folder */}
+                    <button
+                      onClick={() =>
+                        window.electronAPI.showInFolder(entry.filePath)
+                      }
+                      title="Show in Finder / Explorer"
+                      className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all duration-150"
+                      style={{
+                        background: "rgba(124,58,237,0.12)",
+                        border: "1px solid rgba(124,58,237,0.25)",
+                        color: "#a78bfa",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background =
+                          "rgba(124,58,237,0.25)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background =
+                          "rgba(124,58,237,0.12)";
+                      }}
+                    >
+                      <svg
+                        className="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                        />
+                      </svg>
+                      Show
+                    </button>
+
+                    {/* Delete (trash) */}
+                    <button
+                      onClick={() => handleDeleteEntry(entry)}
+                      disabled={deletingId === entry.id}
+                      title="Delete"
+                      className="w-9 h-9 rounded-xl flex items-center justify-center text-lg transition-all duration-200 disabled:opacity-40"
+                      style={{
+                        background: "rgba(220,38,38,0.12)",
+                        border: "1px solid rgba(220,38,38,0.35)",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background =
+                          "rgba(220,38,38,0.22)";
+                        e.currentTarget.style.transform = "translateY(-1px)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background =
+                          "rgba(220,38,38,0.12)";
+                        e.currentTarget.style.transform = "translateY(0px)";
+                      }}
+                    >
+                      {deletingId === entry.id ? "⏳" : "🗑️"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [url, setUrl] = useState("");
   const [videoInfo, setVideoInfo] = useState(null);
@@ -132,14 +452,14 @@ export default function App() {
   const [thumbDownloading, setThumbDownloading] = useState(false);
   const [audioOnly, setAudioOnly] = useState(false);
   const [audioQuality, setAudioQuality] = useState("192");
-  // NEW
   const [audioTrackId, setAudioTrackId] = useState("bestaudio/best");
   const [audioContainer, setAudioContainer] = useState("mp3");
+  // NEW — history only
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
 
-  // Derived slider values (seconds)
   const duration = videoInfo?.duration || 0;
   const sliderStart = timeToSecs(clipStart) ?? 0;
   const sliderEnd = timeToSecs(clipEnd) ?? duration;
@@ -186,7 +506,7 @@ export default function App() {
     setShowLoginPrompt(false);
     setClipStart("");
     setClipEnd("");
-    setAudioTrackId("bestaudio/best"); // reset on new fetch
+    setAudioTrackId("bestaudio/best");
     try {
       const info = await window.electronAPI.getVideoInfo(urlToFetch);
       if (info?.ageRestricted) {
@@ -196,7 +516,6 @@ export default function App() {
         return;
       }
       setVideoInfo(info);
-      // Auto-select first available height
       if (info.rawFormats?.length > 0) {
         const firstHeight = info.rawFormats[0].height;
         setSelectedHeight(firstHeight);
@@ -215,7 +534,6 @@ export default function App() {
           .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
         setSelectedBitrate(bitratesAtHeightCodec[0]?.bitrate ?? null);
       }
-      // Auto-select first available container (prefer mp4, else first in list)
       if (info.availableContainers?.length > 0) {
         setSelectedContainer(
           info.availableContainers.includes("mp4")
@@ -299,7 +617,6 @@ export default function App() {
       setStatus("Downloading...");
     });
     try {
-      // Derive the download_id from selected height+codec+bitrate
       const selectedRaw = videoInfo?.rawFormats?.find(
         (f) =>
           f.height === selectedHeight &&
@@ -309,7 +626,7 @@ export default function App() {
       const resolvedFormatId =
         selectedRaw?.download_id || "bestvideo+bestaudio";
 
-      await window.electronAPI.download({
+      const result = await window.electronAPI.download({
         url,
         formatId: resolvedFormatId,
         container: selectedContainer,
@@ -321,6 +638,7 @@ export default function App() {
         audioTrackId: audioOnly ? audioTrackId : null,
         audioContainer: audioOnly ? audioContainer : null,
       });
+
       setProgress(100);
       setDone(true);
       setStatus(
@@ -330,6 +648,26 @@ export default function App() {
             ? "Clip downloaded!"
             : "Download complete!",
       );
+
+      // Save to history
+      const type = audioOnly
+        ? "audio"
+        : clipStart && clipEnd
+          ? "clip"
+          : "video";
+      const quality = audioOnly
+        ? `${audioContainer.toUpperCase()} · ${audioQuality}kbps`
+        : selectedHeight
+          ? `${selectedHeight}p ${selectedContainer.toUpperCase()}`
+          : null;
+      await window.electronAPI.addHistory({
+        title: videoInfo?.title || url,
+        thumbnail: videoInfo?.thumbnail || null,
+        type,
+        quality,
+        filePath: result?.filePath || null,
+        url,
+      });
     } catch (err) {
       setStatus(
         err.message.includes("cancel")
@@ -363,13 +701,23 @@ export default function App() {
             (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0),
         )[0];
       const thumbnailUrl = best?.url || videoInfo.thumbnail;
-      await window.electronAPI.downloadThumbnail({
+      const filePath = await window.electronAPI.downloadThumbnail({
         thumbnailUrl,
         title: videoInfo.title,
         savePath,
       });
       setThumbDone(true);
       setStatus("Thumbnail saved!");
+
+      // Save to history
+      await window.electronAPI.addHistory({
+        title: videoInfo.title,
+        thumbnail: videoInfo.thumbnail || null,
+        type: "thumbnail",
+        quality: "JPG",
+        filePath: filePath || null,
+        url,
+      });
     } catch (err) {
       setStatus("Error saving thumbnail: " + err.message);
     } finally {
@@ -406,6 +754,9 @@ export default function App() {
       className="h-screen w-screen bg-[#0a0a0f] text-white flex flex-col overflow-hidden"
       style={{ fontFamily: "'Inter', system-ui, sans-serif" }}
     >
+      {/* NEW: History drawer */}
+      <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />
+
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-40 -left-40 w-[500px] h-[500px] bg-violet-600/10 rounded-full blur-3xl" />
         <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-pink-600/8 rounded-full blur-3xl" />
@@ -424,7 +775,6 @@ export default function App() {
               alt="App Icon"
               className="w-10 h-10 object-contain select-none"
             />
-
             <span
               className="text-xs font-black uppercase tracking-widest"
               style={{
@@ -438,7 +788,34 @@ export default function App() {
               Seedhe Download
             </span>
           </div>
-          <div style={{ WebkitAppRegion: "no-drag" }}>
+          {/* NEW: history button + existing AuthPill, wrapped in no-drag */}
+          <div
+            className="flex items-center gap-2"
+            style={{ WebkitAppRegion: "no-drag" }}
+          >
+            <button
+              onClick={() => setHistoryOpen(true)}
+              title="Download history"
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-lg transition-all duration-200"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(124,58,237,0.22), rgba(219,39,119,0.18))",
+                border: "1px solid rgba(255,255,255,0.14)",
+                boxShadow: "0 0 18px rgba(124,58,237,0.22)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-1px)";
+                e.currentTarget.style.boxShadow =
+                  "0 0 26px rgba(219,39,119,0.25)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "translateY(0px)";
+                e.currentTarget.style.boxShadow =
+                  "0 0 18px rgba(124,58,237,0.22)";
+              }}
+            >
+              🕘
+            </button>
             <AuthPill />
           </div>
         </div>
@@ -477,91 +854,37 @@ export default function App() {
               }}
             >
               {loading ? (
-                <>
-                  <svg
-                    className="animate-spin w-3.5 h-3.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v8z"
-                    />
-                  </svg>
-                  Fetching
-                </>
+                <svg
+                  className="animate-spin w-4 h-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v8z"
+                  />
+                </svg>
               ) : url.trim() ? (
                 "Fetch"
               ) : (
-                "📋 Paste"
+                "Paste & Fetch"
               )}
             </button>
           </div>
         </div>
 
-        {/* Age restriction prompt */}
-        {showLoginPrompt && (
-          <div className="flex-shrink-0 bg-white/5 border border-white/15 rounded-xl p-4 flex items-center gap-4">
-            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 text-lg">
-              🔞
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-white/80">
-                Age-restricted video
-              </p>
-              <p className="text-xs text-white/40 mt-0.5">
-                Sign in to YouTube to access this video
-              </p>
-            </div>
-            <button
-              onClick={handleYouTubeLogin}
-              className="px-4 py-2 rounded-lg text-sm font-bold transition-colors flex-shrink-0"
-              style={{ background: "#ffffff", color: "#000000" }}
-            >
-              Sign in to YouTube
-            </button>
-          </div>
-        )}
-
-        {loggingIn && (
-          <div className="flex-shrink-0 bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
-            <svg
-              className="animate-spin w-4 h-4 text-white/40"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8v8z"
-              />
-            </svg>
-            <span className="text-sm text-white/40">
-              Waiting for YouTube sign-in...
-            </span>
-          </div>
-        )}
-
-        {/* Body */}
-        <div className="flex-1 flex gap-8 min-h-0">
-          {/* Left — video card */}
+        {/* Content area */}
+        <div className="flex gap-6 flex-1">
+          {/* Left — video info */}
           {videoInfo ? (
             <div className="w-72 flex-shrink-0 flex flex-col gap-4">
               <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
@@ -579,7 +902,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* NEW: Thumbnail download button — below the image */}
+                {/* Thumbnail download button */}
                 <div className="px-3 pt-3 pb-0">
                   <button
                     onClick={downloadThumbnail}
@@ -819,12 +1142,10 @@ export default function App() {
                         </label>
                         <div className="relative">
                           <select
-                            value={selectedHeight ?? ""}
-                            className={selectCls}
+                            value={selectedHeight ? selectedHeight : ""}
                             onChange={(e) => {
                               const h = Number(e.target.value);
                               setSelectedHeight(h);
-                              setDone(false);
                               const codecs = [
                                 ...new Set(
                                   raw
@@ -832,17 +1153,19 @@ export default function App() {
                                     .map((f) => f.codec),
                                 ),
                               ];
-                              const codec = codecs[0] || null;
-                              setSelectedCodec(codec);
-                              const bits = raw
+                              setSelectedCodec(codecs[0] || null);
+                              const brs = raw
                                 .filter(
-                                  (f) => f.height === h && f.codec === codec,
+                                  (f) =>
+                                    f.height === h && f.codec === codecs[0],
                                 )
                                 .sort(
                                   (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
                                 );
-                              setSelectedBitrate(bits[0]?.bitrate ?? null);
+                              setSelectedBitrate(brs[0]?.bitrate ?? null);
+                              setDone(false);
                             }}
+                            className={selectCls}
                           >
                             {heights.map((h) => (
                               <option key={h} value={h} className={optCls}>
@@ -862,22 +1185,21 @@ export default function App() {
                         <div className="relative">
                           <select
                             value={selectedCodec ?? ""}
-                            className={selectCls}
                             onChange={(e) => {
-                              const codec = e.target.value;
-                              setSelectedCodec(codec);
-                              setDone(false);
-                              const bits = raw
+                              setSelectedCodec(e.target.value);
+                              const brs = raw
                                 .filter(
                                   (f) =>
                                     f.height === selectedHeight &&
-                                    f.codec === codec,
+                                    f.codec === e.target.value,
                                 )
                                 .sort(
                                   (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
                                 );
-                              setSelectedBitrate(bits[0]?.bitrate ?? null);
+                              setSelectedBitrate(brs[0]?.bitrate ?? null);
+                              setDone(false);
                             }}
+                            className={selectCls}
                           >
                             {codecsAtHeight.map((c) => (
                               <option key={c} value={c} className={optCls}>
@@ -897,32 +1219,23 @@ export default function App() {
                         <div className="relative">
                           <select
                             value={selectedBitrate ?? ""}
-                            className={selectCls}
                             onChange={(e) => {
-                              const val = e.target.value;
-                              setSelectedBitrate(
-                                val === "" ? null : Number(val),
-                              );
+                              setSelectedBitrate(Number(e.target.value));
                               setDone(false);
                             }}
+                            className={selectCls}
                           >
-                            {matchingFormats.length === 0 ? (
-                              <option value="" className={optCls}>
-                                No options
+                            {matchingFormats.map((f) => (
+                              <option
+                                key={f.format_id}
+                                value={f.bitrate ?? ""}
+                                className={optCls}
+                              >
+                                {f.bitrate ? `${f.bitrate} kbps` : "Unknown"}
+                                {f.fps >= 60 ? ` · ${f.fps}fps` : ""}
+                                {!f.hasMuxedAudio ? " · video only" : ""}
                               </option>
-                            ) : (
-                              matchingFormats.map((f) => (
-                                <option
-                                  key={f.format_id}
-                                  value={f.bitrate ?? ""}
-                                  className={optCls}
-                                >
-                                  {f.bitrate ? `${f.bitrate} kbps` : "Unknown"}
-                                  {f.fps >= 60 ? ` · ${f.fps}fps` : ""}
-                                  {!f.hasMuxedAudio ? " · video only" : ""}
-                                </option>
-                              ))
-                            )}
+                            ))}
                           </select>
                           <Chevron />
                         </div>
@@ -992,7 +1305,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* NEW: Audio container format */}
+                  {/* Format */}
                   <div className="space-y-2">
                     <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
                       Format
@@ -1027,7 +1340,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* NEW: Audio track selector — only if multiple tracks exist */}
+                  {/* Audio track selector — only if multiple tracks exist */}
                   {(videoInfo.audioTracks?.length ?? 0) > 1 && (
                     <div className="space-y-2">
                       <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
