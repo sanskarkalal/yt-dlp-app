@@ -821,7 +821,7 @@ export default function App() {
       const success = await window.electronAPI.openYouTubeLogin();
       if (success) {
         setCookiesOk(true);
-        setStatus("Signed in! Retrying...");
+
         await fetchInfo(pendingUrl);
         setPendingUrl(null);
       } else {
