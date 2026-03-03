@@ -773,7 +773,7 @@ ipcMain.handle(
               ]
             : []),
           "-o",
-          path.join(savePath, "%(title)s.%(ext)s"),
+          path.join(savePath, "%(title)s [audio].%(ext)s"),
           "--newline",
           url,
         ];
@@ -897,10 +897,16 @@ ipcMain.handle("clear-history", () => {
 // ---------------------------------------------------------------------------
 
 ipcMain.handle("show-in-folder", (_, filePath) => {
-  if (filePath && fs.existsSync(filePath)) {
-    shell.showItemInFolder(filePath);
+  if (filePath) {
+    const normalized = path.normalize(filePath);
+    if (fs.existsSync(normalized)) {
+      shell.showItemInFolder(normalized);
+    } else {
+      const dir = path.dirname(normalized);
+      shell.openPath(fs.existsSync(dir) ? dir : os.homedir());
+    }
   } else {
-    shell.openPath(filePath ? path.dirname(filePath) : os.homedir());
+    shell.openPath(os.homedir());
   }
   return true;
 });
