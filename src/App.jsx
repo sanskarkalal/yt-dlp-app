@@ -880,8 +880,7 @@ export default function App() {
           f.codec === selectedCodec &&
           f.bitrate === selectedBitrate,
       );
-      const resolvedFormatId =
-        selectedRaw?.download_id || "bestvideo+bestaudio";
+      const resolvedFormatId = selectedRaw?.format_id || "bestvideo+bestaudio";
 
       const result = await window.electronAPI.download({
         url,
