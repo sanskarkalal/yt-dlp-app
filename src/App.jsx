@@ -119,15 +119,20 @@ function HistoryDrawer({ open, onClose }) {
   const [history, setHistory] = useState([]);
   const [clearing, setClearing] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   useEffect(() => {
     if (open) window.electronAPI.getHistory().then(setHistory);
+    else setSelectedIds(new Set()); // clear selection when drawer closes
   }, [open]);
 
   const handleClearAll = async () => {
     setClearing(true);
     await window.electronAPI.clearHistory();
     setHistory([]);
+    setSelectedIds(new Set());
     setClearing(false);
   };
 
@@ -136,7 +141,41 @@ function HistoryDrawer({ open, onClose }) {
     if (entry.filePath) await window.electronAPI.deleteFile(entry.filePath);
     await window.electronAPI.deleteHistoryEntry(entry.id);
     setHistory((prev) => prev.filter((e) => e.id !== entry.id));
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      n.delete(entry.id);
+      return n;
+    });
     setDeletingId(null);
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === history.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(history.map((e) => e.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true);
+    const toDelete = history.filter((e) => selectedIds.has(e.id));
+    for (const entry of toDelete) {
+      if (entry.filePath) await window.electronAPI.deleteFile(entry.filePath);
+      await window.electronAPI.deleteHistoryEntry(entry.id);
+    }
+    setHistory((prev) => prev.filter((e) => !selectedIds.has(e.id)));
+    setSelectedIds(new Set());
+    setShowConfirm(false);
+    setBulkDeleting(false);
   };
 
   const typeBadge = (type) => {
@@ -177,6 +216,9 @@ function HistoryDrawer({ open, onClose }) {
     );
   };
 
+  const allSelected = history.length > 0 && selectedIds.size === history.length;
+  const someSelected = selectedIds.size > 0;
+
   return (
     <>
       {/* Backdrop */}
@@ -194,7 +236,7 @@ function HistoryDrawer({ open, onClose }) {
       <div
         className="fixed top-0 right-0 h-full z-50 flex flex-col"
         style={{
-          width: "380px",
+          width: "440px",
           background: "linear-gradient(180deg, #0f0f1a 0%, #0a0a0f 100%)",
           borderLeft: "1px solid rgba(255,255,255,0.08)",
           transform: open ? "translateX(0)" : "translateX(100%)",
@@ -227,6 +269,36 @@ function HistoryDrawer({ open, onClose }) {
             </svg>
             <span className="text-sm font-semibold text-white/70">History</span>
             {history.length > 0 && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full font-mono"
+                style={{
+                  background: "rgba(255,255,255,0.08)",
+                  color: "rgba(255,255,255,0.3)",
+                }}
+              >
+                {history.length}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            {/* Select all toggle — only when history exists */}
+            {history.length > 0 && (
+              <button
+                onClick={toggleSelectAll}
+                className="text-[8px] font-medium px-1.5 py-0.8 rounded-lg transition-colors"
+                style={{
+                  background: allSelected
+                    ? "rgba(124,58,237,0.2)"
+                    : "rgba(255,255,255,0.05)",
+                  border: `1px solid ${allSelected ? "rgba(124,58,237,0.4)" : "rgba(255,255,255,0.1)"}`,
+                  color: allSelected ? "#a78bfa" : "rgba(255,255,255,0.4)",
+                }}
+              >
+                {allSelected ? "Deselect all" : "Select all"}
+              </button>
+            )}
+            {/* Clear all — only when nothing is selected */}
+            {history.length > 0 && !someSelected && (
               <button
                 onClick={handleClearAll}
                 disabled={clearing}
@@ -246,6 +318,43 @@ function HistoryDrawer({ open, onClose }) {
                 }}
               >
                 {clearing ? "⏳" : "🧹"}
+              </button>
+            )}
+            {/* Delete selected button — only when items selected */}
+            {someSelected && (
+              <button
+                onClick={() => setShowConfirm(true)}
+                className="flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-xl transition-all duration-200"
+                style={{
+                  background:
+                    "linear-gradient(135deg, rgba(220,38,38,0.25), rgba(185,28,28,0.25))",
+                  border: "1px solid rgba(220,38,38,0.45)",
+                  color: "#f87171",
+                  boxShadow: "0 0 12px rgba(220,38,38,0.2)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background =
+                    "linear-gradient(135deg, rgba(220,38,38,0.4), rgba(185,28,28,0.4))";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background =
+                    "linear-gradient(135deg, rgba(220,38,38,0.25), rgba(185,28,28,0.25))";
+                }}
+              >
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+                Delete {selectedIds.size}
               </button>
             )}
             <button
@@ -290,73 +399,108 @@ function HistoryDrawer({ open, onClose }) {
               <p className="text-sm">No downloads yet</p>
             </div>
           ) : (
-            history.map((entry) => (
-              <div
-                key={entry.id}
-                className="rounded-xl overflow-hidden"
-                style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.07)",
-                }}
-              >
-                {/* Card top */}
-                <div className="flex gap-3 p-3">
-                  {entry.thumbnail ? (
-                    <img
-                      src={entry.thumbnail}
-                      alt=""
-                      className="w-20 h-12 object-cover rounded-lg flex-shrink-0"
-                      style={{ background: "rgba(255,255,255,0.05)" }}
-                      onError={(e) => {
-                        e.target.style.display = "none";
-                      }}
-                    />
-                  ) : (
+            history.map((entry) => {
+              const isSelected = selectedIds.has(entry.id);
+              return (
+                <div
+                  key={entry.id}
+                  className="rounded-xl overflow-hidden"
+                  style={{
+                    background: isSelected
+                      ? "rgba(124,58,237,0.1)"
+                      : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${isSelected ? "rgba(124,58,237,0.35)" : "rgba(255,255,255,0.07)"}`,
+                    transition: "background 0.15s, border-color 0.15s",
+                  }}
+                >
+                  {/* Card top */}
+                  <div className="flex gap-3 p-3">
+                    {/* Checkbox */}
                     <div
-                      className="w-20 h-12 rounded-lg flex-shrink-0 flex items-center justify-center"
-                      style={{ background: "rgba(255,255,255,0.05)" }}
+                      onClick={() => toggleSelect(entry.id)}
+                      className="flex-shrink-0 self-center cursor-pointer"
+                      style={{ marginLeft: "-2px" }}
                     >
-                      <svg
-                        className="w-5 h-5 text-white/20"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
+                      <div
+                        className="w-4 h-4 rounded flex items-center justify-center transition-all duration-150"
+                        style={{
+                          background: isSelected
+                            ? "linear-gradient(135deg, #7c3aed, #db2777)"
+                            : "rgba(255,255,255,0.07)",
+                          border: `1.5px solid ${isSelected ? "transparent" : "rgba(255,255,255,0.2)"}`,
+                        }}
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                        />
-                      </svg>
+                        {isSelected && (
+                          <svg
+                            className="w-2.5 h-2.5 text-white"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={3}
+                              d="M5 13l4 4L19 7"
+                            />
+                          </svg>
+                        )}
+                      </div>
                     </div>
-                  )}
-                  <div className="flex-1 min-w-0 flex flex-col justify-between">
-                    <p className="text-xs font-medium text-white/80 line-clamp-2 leading-snug">
-                      {entry.title}
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      {typeBadge(entry.type)}
-                      {entry.quality && (
-                        <span className="text-[10px] text-white/25 font-mono">
-                          {entry.quality}
-                        </span>
-                      )}
+
+                    {entry.thumbnail ? (
+                      <img
+                        src={entry.thumbnail}
+                        alt=""
+                        className="w-20 h-12 object-cover rounded-lg flex-shrink-0"
+                        style={{ background: "rgba(255,255,255,0.05)" }}
+                        onError={(e) => {
+                          e.target.style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <div
+                        className="w-20 h-12 rounded-lg flex-shrink-0 flex items-center justify-center"
+                        style={{ background: "rgba(255,255,255,0.05)" }}
+                      >
+                        <svg
+                          className="w-5 h-5 text-white/20"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                          />
+                        </svg>
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0 flex flex-col justify-between">
+                      <p className="text-xs font-medium text-white/80 line-clamp-2 leading-snug">
+                        {entry.title}
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        {typeBadge(entry.type)}
+                        {entry.quality && (
+                          <span className="text-[10px] text-white/25 font-mono">
+                            {entry.quality}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Card bottom: date + actions */}
-                <div
-                  className="flex items-center justify-between px-3 py-2 gap-2"
-                  style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
-                >
-                  <span className="text-[10px] text-white/25 font-mono truncate">
-                    {formatDate(entry.id)}
-                  </span>
-
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    {/* Show in Folder */}
+                  {/* Card bottom: date + actions */}
+                  <div
+                    className="flex items-center justify-between px-3 py-2 gap-2"
+                    style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+                  >
+                    <span className="text-[10px] text-white/25 font-mono truncate">
+                      {formatDate(entry.id)}
+                    </span>
                     <button
                       onClick={() =>
                         window.electronAPI.showInFolder(entry.filePath)
@@ -392,37 +536,150 @@ function HistoryDrawer({ open, onClose }) {
                       </svg>
                       Show
                     </button>
-
-                    {/* Delete (trash) */}
-                    <button
-                      onClick={() => handleDeleteEntry(entry)}
-                      disabled={deletingId === entry.id}
-                      title="Delete"
-                      className="w-9 h-9 rounded-xl flex items-center justify-center text-lg transition-all duration-200 disabled:opacity-40"
-                      style={{
-                        background: "rgba(220,38,38,0.12)",
-                        border: "1px solid rgba(220,38,38,0.35)",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background =
-                          "rgba(220,38,38,0.22)";
-                        e.currentTarget.style.transform = "translateY(-1px)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background =
-                          "rgba(220,38,38,0.12)";
-                        e.currentTarget.style.transform = "translateY(0px)";
-                      }}
-                    >
-                      {deletingId === entry.id ? "⏳" : "🗑️"}
-                    </button>
                   </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      {showConfirm && (
+        <div
+          className="fixed inset-0 z-60 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.7)" }}
+        >
+          <div
+            className="flex flex-col gap-4 p-6 rounded-2xl"
+            style={{
+              width: "320px",
+              background: "linear-gradient(180deg, #16162a 0%, #0f0f1a 100%)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              boxShadow: "0 24px 64px rgba(0,0,0,0.8)",
+            }}
+          >
+            {/* Icon + title */}
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{
+                  background: "rgba(220,38,38,0.15)",
+                  border: "1px solid rgba(220,38,38,0.3)",
+                }}
+              >
+                <svg
+                  className="w-5 h-5"
+                  style={{ color: "#f87171" }}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white/90">
+                  Delete {selectedIds.size} file
+                  {selectedIds.size > 1 ? "s" : ""}?
+                </p>
+                <p className="text-[11px] text-white/40 mt-0.5">
+                  Files will be moved to trash
+                </p>
+              </div>
+            </div>
+
+            {/* File list preview (max 4) */}
+            <div
+              className="rounded-xl px-3 py-2 space-y-1.5"
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.07)",
+              }}
+            >
+              {history
+                .filter((e) => selectedIds.has(e.id))
+                .slice(0, 4)
+                .map((e) => (
+                  <p key={e.id} className="text-[11px] text-white/50 truncate">
+                    · {e.title}
+                  </p>
+                ))}
+              {selectedIds.size > 4 && (
+                <p className="text-[11px] text-white/30">
+                  · and {selectedIds.size - 4} more...
+                </p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowConfirm(false)}
+                disabled={bulkDeleting}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-40"
+                style={{
+                  background: "rgba(255,255,255,0.07)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  color: "rgba(255,255,255,0.6)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.12)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.07)";
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-60 flex items-center justify-center gap-2"
+                style={{
+                  background: "linear-gradient(135deg, #dc2626, #b91c1c)",
+                  boxShadow: bulkDeleting
+                    ? "none"
+                    : "0 0 20px rgba(220,38,38,0.4)",
+                  color: "white",
+                }}
+              >
+                {bulkDeleting ? (
+                  <>
+                    <svg
+                      className="animate-spin w-4 h-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v8z"
+                      />
+                    </svg>
+                    Deleting...
+                  </>
+                ) : (
+                  "Delete"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -806,7 +1063,7 @@ export default function App() {
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = "translateY(-1px)";
                 e.currentTarget.style.boxShadow =
-                  "0 0 26px rgba(219,39,119,0.25)";
+                  "0 0 26px rgba(219,39,119,0.35)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = "translateY(0px)";
@@ -814,7 +1071,7 @@ export default function App() {
                   "0 0 18px rgba(124,58,237,0.22)";
               }}
             >
-              🕘
+              🕐
             </button>
             <AuthPill />
           </div>
