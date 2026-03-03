@@ -842,7 +842,11 @@ ipcMain.handle(
 
 ipcMain.handle("cancel-download", () => {
   if (activeDownload) {
-    activeDownload.kill("SIGTERM");
+    if (process.platform === "win32") {
+      spawn("taskkill", ["/pid", activeDownload.pid, "/f", "/t"]);
+    } else {
+      activeDownload.kill("SIGTERM");
+    }
     activeDownload = null;
   }
 });

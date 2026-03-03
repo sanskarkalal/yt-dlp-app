@@ -1097,6 +1097,25 @@ export default function App() {
               onKeyDown={(e) => e.key === "Enter" && fetchInfo()}
               className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-white/20 text-white"
             />
+            {url.trim() && (
+              <button
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText();
+                    if (text.trim()) {
+                      setUrl(text.trim());
+                      await fetchInfo(text.trim());
+                    }
+                  } catch {}
+                }}
+                disabled={loading}
+                title="Paste new URL"
+                className="px-3 py-2 rounded-lg text-lg transition-all duration-200 disabled:opacity-30"
+                style={{ background: "rgba(255,255,255,0.08)" }}
+              >
+                📋
+              </button>
+            )}
             <button
               onClick={async () => {
                 if (!url.trim()) {
@@ -1139,9 +1158,9 @@ export default function App() {
                   />
                 </svg>
               ) : url.trim() ? (
-                "Fetch"
+                "🔎"
               ) : (
-                "Paste & Fetch"
+                "📋"
               )}
             </button>
           </div>
