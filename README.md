@@ -1,4 +1,3 @@
-````md
 # 🎬 YT Downloader
 
 A cross-platform desktop app to download YouTube videos — built with Electron, React, and yt-dlp.
@@ -34,7 +33,7 @@ Verify Node version:
 ```bash
 node -v
 # Must print v20.x.x
-````
+```
 
 Other Node versions may cause build or Electron issues.
 
@@ -65,7 +64,7 @@ npm install
 
 ## 3️⃣ Create Required Binary Folders
 
-The app bundles `yt-dlp` and `ffmpeg` manually.
+The app bundles `yt-dlp` and `ffmpeg` manually.  
 They **must** exist inside `resources/bin/` before running or building.
 
 Required structure:
@@ -116,35 +115,6 @@ dir resources\bin\win
 
 ---
 
-### 🍎 macOS
-
-Open Terminal in project root:
-
-```bash
-mkdir -p resources/bin/mac
-
-# Download yt-dlp
-curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o resources/bin/mac/yt-dlp
-chmod +x resources/bin/mac/yt-dlp
-```
-
-Install ffmpeg (recommended via Homebrew):
-
-```bash
-brew install ffmpeg
-cp $(which ffmpeg) resources/bin/mac/ffmpeg
-chmod +x resources/bin/mac/ffmpeg
-```
-
-Verify:
-
-```bash
-ls resources/bin/mac
-# Should show: yt-dlp  ffmpeg
-```
-
----
-
 # 🧪 Run in Development Mode
 
 ```bash
@@ -152,10 +122,9 @@ npm run dev
 ```
 
 This:
-
-* Starts Vite
-* Launches Electron
-* Opens the app automatically
+- Starts Vite
+- Launches Electron
+- Opens the app automatically
 
 If the app crashes at launch, confirm binaries exist in `resources/bin/`.
 
@@ -181,6 +150,11 @@ Output:
 release/YT Downloader Setup x.x.x.exe
 ```
 
+### ✅ Windows Installation
+
+The Windows installer works normally.  
+Just double-click the `.exe` file and install — no extra steps required.
+
 ---
 
 ## Build for macOS
@@ -197,6 +171,22 @@ Output:
 release/YT Downloader-x.x.x.dmg
 ```
 
+### ⚠ macOS Installation (Important)
+
+Because the app is not Apple-notarized, macOS may show:
+
+> “App is damaged and can’t be opened”
+
+After dragging the app into `/Applications`, run this on the target Mac:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/seedhe download by sanskar.app"
+```
+
+Then open the app normally.
+
+This removes Apple Gatekeeper quarantine from the unsigned build.
+
 ---
 
 ## Build for Current Platform
@@ -211,10 +201,10 @@ npm run dist
 
 When downloading age-restricted content:
 
-* The app opens a Google sign-in window.
-* You log in normally.
-* Electron stores cookies in its session.
-* The app uses those cookies for future downloads.
+- The app opens a Google sign-in window.
+- You log in normally.
+- Electron stores cookies in its session.
+- The app uses those cookies for future downloads.
 
 If your implementation exports cookies to a `cookies.txt` file, it will typically be stored in:
 
@@ -233,18 +223,17 @@ Use **Clear Cookies** inside app settings.
 
 ### ❌ yt-dlp not found
 
-* Confirm correct file exists:
-
-  * Windows → `resources/bin/win/yt-dlp.exe`
-  * macOS → `resources/bin/mac/yt-dlp`
-* Re-run binary download steps
+- Confirm correct file exists:
+  - Windows → `resources/bin/win/yt-dlp.exe`
+  - macOS → `resources/bin/mac/yt-dlp`
+- Re-run binary download steps
 
 ---
 
 ### ❌ ffmpeg not found / no audio
 
-* Confirm ffmpeg exists in correct folder
-* Ensure file is executable (macOS)
+- Confirm ffmpeg exists in correct folder
+- Ensure file is executable (macOS)
 
 ```bash
 chmod +x resources/bin/mac/ffmpeg
@@ -252,77 +241,19 @@ chmod +x resources/bin/mac/ffmpeg
 
 ---
 
-### 🍎 macOS: “App is damaged” / can’t open
-
-This is Gatekeeper quarantine on unsigned apps. On the target Mac:
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/seedhe download by sanskar.app"
-```
-
-Then open the app again.
-
----
-
-### 🍎 macOS: `Permission denied` for ffmpeg or yt-dlp
-
-If this appears on an older build:
-
-```bash
-chmod +x "/Applications/seedhe download by sanskar.app/Contents/Resources/bin/mac/ffmpeg"
-chmod +x "/Applications/seedhe download by sanskar.app/Contents/Resources/bin/mac/yt-dlp"
-```
-
-Newer mac builds use an `afterPack` hook to set these permissions during packaging.
-
----
-
 ### 🪟 Windows: Antivirus flags installer
 
-Common false positive for Electron apps using yt-dlp.
+Common false positive for Electron apps using yt-dlp.  
 Add an exclusion for the `release/` folder.
 
 ---
 
 ### ❌ Build fails with symlink errors (Windows)
 
-Run terminal as Administrator
+Run terminal as Administrator  
 OR enable Developer Mode in Windows Settings
 
 ---
-
-## Windows one-click setup
-
-From project root, double-click `setup-and-install.bat` (or run it in terminal).
-
-CLI alternative:
-
-```powershell
-npm run setup:win
-```
-
-## macOS one-click setup
-
-From project root on macOS:
-
-```bash
-npm run setup:mac
-```
-
-If you prefer Finder double-click, first make launchers executable once:
-
-```bash
-chmod +x setup-and-install-mac.command scripts/setup-and-install-mac.sh
-./setup-and-install-mac.command
-```
-
-## Clean macOS release build
-
-Build a fresh mac release and keep only `.dmg` in `release/`:
-
-```bash
-npm run release:mac
-```
 
 # 📜 License
 
