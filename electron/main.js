@@ -321,7 +321,11 @@ ipcMain.handle("get-video-info", async (_, url) => {
           errorOutput.includes("Sign in to confirm your age") ||
           errorOutput.includes("age-restricted") ||
           errorOutput.includes("inappropriate for some users");
-        if (isAgeRestricted) return reject(new Error("AGE_RESTRICTED"));
+        if (isAgeRestricted) {
+          return resolve({
+            ageRestricted: true,
+          });
+        }
         return reject(new Error(`yt-dlp failed: ${errorOutput.slice(0, 300)}`));
       }
       try {

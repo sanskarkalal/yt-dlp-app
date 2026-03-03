@@ -189,6 +189,12 @@ export default function App() {
     setAudioTrackId("bestaudio/best"); // reset on new fetch
     try {
       const info = await window.electronAPI.getVideoInfo(urlToFetch);
+      if (info?.ageRestricted) {
+        setPendingUrl(urlToFetch);
+        setShowLoginPrompt(true);
+        setStatus("");
+        return;
+      }
       setVideoInfo(info);
       // Auto-select first available height
       if (info.rawFormats?.length > 0) {
@@ -219,7 +225,7 @@ export default function App() {
       }
       setStatus("");
     } catch (err) {
-      if (err.message.includes("AGE_RESTRICTED")) {
+      if (err?.message?.includes("AGE_RESTRICTED")) {
         setPendingUrl(urlToFetch);
         setShowLoginPrompt(true);
         setStatus("");
