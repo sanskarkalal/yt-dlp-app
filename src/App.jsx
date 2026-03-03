@@ -1138,7 +1138,59 @@ export default function App() {
             </button>
           </div>
         </div>
+        {/* Age restriction prompt */}
+        {showLoginPrompt && (
+          <div className="flex-shrink-0 bg-white/5 border border-white/15 rounded-xl p-4 flex items-center gap-4">
+            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 text-lg">
+              🔞
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-white/80">
+                Age-restricted video
+              </p>
+              <p className="text-xs text-white/40 mt-0.5">
+                Sign in to YouTube to access this video
+              </p>
+            </div>
+            <button
+              onClick={handleYouTubeLogin}
+              className="px-4 py-2 rounded-lg text-sm font-bold transition-colors flex-shrink-0"
+              style={{ background: "#ffffff", color: "#000000" }}
+            >
+              Sign in to YouTube
+            </button>
+          </div>
+        )}
 
+        {loggingIn && (
+          <div className="flex-shrink-0 bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
+            <svg
+              className="animate-spin w-4 h-4 text-white/40"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8v8z"
+              />
+            </svg>
+            <span className="text-sm text-white/40">
+              Waiting for YouTube sign-in...
+            </span>
+          </div>
+        )}
+
+        {/* Content area */}
+        <div className="flex gap-6 flex-1"></div>
         {/* Content area */}
         <div className="flex gap-6 flex-1">
           {/* Left — video info */}
