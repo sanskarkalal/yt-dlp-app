@@ -1189,8 +1189,6 @@ export default function App() {
         )}
 
         {/* Content area */}
-        <div className="flex gap-6 flex-1"></div>
-        {/* Content area */}
         <div className="flex gap-6 flex-1">
           {/* Left — video info */}
           {videoInfo ? (
