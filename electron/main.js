@@ -96,13 +96,27 @@ function getYtDlpEnv() {
 let activeDownload = null;
 let mainWindow = null;
 
+function hasValidCookies(cookiePath) {
+  if (!fs.existsSync(cookiePath)) return false;
+  try {
+    const content = fs.readFileSync(cookiePath, "utf8");
+    const lines = content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return lines.some((line) => !line.startsWith("#") && line.split("\t").length >= 7);
+  } catch {
+    return false;
+  }
+}
+
 function cookiesExist() {
-  return fs.existsSync(getCookiesPath()) || fs.existsSync(LEGACY_COOKIES_PATH);
+  return hasValidCookies(getCookiesPath()) || hasValidCookies(LEGACY_COOKIES_PATH);
 }
 
 function cookieArgs() {
-  if (fs.existsSync(getCookiesPath())) return ["--cookies", getCookiesPath()];
-  if (fs.existsSync(LEGACY_COOKIES_PATH)) return ["--cookies", LEGACY_COOKIES_PATH];
+  if (hasValidCookies(getCookiesPath())) return ["--cookies", getCookiesPath()];
+  if (hasValidCookies(LEGACY_COOKIES_PATH)) return ["--cookies", LEGACY_COOKIES_PATH];
   return [];
 }
 
@@ -179,6 +193,7 @@ function openYouTubeLogin() {
 
     const tryPersistCookies = async () => {
       console.log("[auth] Attempting to extract cookies...");
+      await loginWin.webContents.session.flushStorageData();
       const allSessionCookies = await loginWin.webContents.session.cookies.get(
         {},
       );
@@ -212,6 +227,13 @@ function openYouTubeLogin() {
       }
 
       fs.writeFileSync(getCookiesPath(), cookieLines.join("\n"));
+      try {
+        const legacyDir = path.dirname(LEGACY_COOKIES_PATH);
+        if (!fs.existsSync(legacyDir)) fs.mkdirSync(legacyDir, { recursive: true });
+        fs.writeFileSync(LEGACY_COOKIES_PATH, cookieLines.join("\n"));
+      } catch (err) {
+        console.warn("[auth] Failed writing legacy cookies path:", err?.message || err);
+      }
       console.log("[auth] Cookies saved:", allCookies.length, "cookies");
       return true;
     };
