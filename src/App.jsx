@@ -11,6 +11,12 @@ function formatDuration(secs) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+// Returns the best default container for a given codec
+function defaultContainerForCodec(codec) {
+  if (codec === "VP9" || codec === "AV1") return "webm";
+  return "mp4"; // H264, H265, everything else
+}
+
 function timeToSecs(t) {
   if (!t) return null;
   const parts = t.split(":").map(Number);
@@ -280,7 +286,7 @@ function HistoryDrawer({ open, onClose }) {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             {/* Select all toggle — only when history exists */}
             {history.length > 0 && (
               <button
@@ -753,7 +759,6 @@ export default function App() {
   const fetchInfo = async (urlToFetch = url) => {
     if (!urlToFetch.trim()) return;
     setLoading(true);
-    setStatus("Fetching video info...");
     setVideoInfo(null);
     setDone(false);
     setThumbDone(false);
@@ -774,7 +779,10 @@ export default function App() {
       }
       setVideoInfo(info);
       if (info.rawFormats?.length > 0) {
-        const firstHeight = info.rawFormats[0].height;
+        const heights = [...new Set(info.rawFormats.map((f) => f.height))].sort(
+          (a, b) => b - a,
+        );
+        const firstHeight = heights[0];
         setSelectedHeight(firstHeight);
         const codecsAtHeight = [
           ...new Set(
@@ -790,15 +798,8 @@ export default function App() {
           )
           .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
         setSelectedBitrate(bitratesAtHeightCodec[0]?.bitrate ?? null);
+        setSelectedContainer(defaultContainerForCodec(codecsAtHeight[0] || ""));
       }
-      if (info.availableContainers?.length > 0) {
-        setSelectedContainer(
-          info.availableContainers.includes("mp4")
-            ? "mp4"
-            : info.availableContainers[0],
-        );
-      }
-      setStatus("");
     } catch (err) {
       if (err?.message?.includes("AGE_RESTRICTED")) {
         setPendingUrl(urlToFetch);
@@ -880,7 +881,15 @@ export default function App() {
           f.codec === selectedCodec &&
           f.bitrate === selectedBitrate,
       );
-      const resolvedFormatId = selectedRaw?.format_id || "bestvideo+bestaudio";
+      const resolvedFormatId =
+        selectedRaw?.format_id ??
+        (() => {
+          // fallback: best format at selected height
+          const fallback = videoInfo?.rawFormats
+            ?.filter((f) => f.height === selectedHeight)
+            .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+          return fallback?.format_id || "bestvideo+bestaudio";
+        })();
 
       const result = await window.electronAPI.download({
         url,
@@ -1469,6 +1478,9 @@ export default function App() {
                                   (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
                                 );
                               setSelectedBitrate(brs[0]?.bitrate ?? null);
+                              setSelectedContainer(
+                                defaultContainerForCodec(codecs[0] || ""),
+                              );
                               setDone(false);
                             }}
                             className={selectCls}
@@ -1503,6 +1515,9 @@ export default function App() {
                                   (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
                                 );
                               setSelectedBitrate(brs[0]?.bitrate ?? null);
+                              setSelectedContainer(
+                                defaultContainerForCodec(e.target.value),
+                              );
                               setDone(false);
                             }}
                             className={selectCls}
@@ -1561,8 +1576,9 @@ export default function App() {
                               setDone(false);
                             }}
                           >
-                            {(
-                              videoInfo.availableContainers || ["mp4", "mkv"]
+                            {(selectedCodec === "VP9" || selectedCodec === "AV1"
+                              ? ["webm", "mkv"]
+                              : ["mp4", "mkv"]
                             ).map((c) => (
                               <option key={c} value={c} className={optCls}>
                                 {c.toUpperCase()}

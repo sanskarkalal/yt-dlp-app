@@ -35,7 +35,8 @@
       "target": "dmg",
       "category": "public.app-category.utilities",
       "icon": "build/icon.icns",
-      "hardenedRuntime": false
+      "hardenedRuntime": false,
+      "identity": null
     },
     "win": {
       "target": "nsis"
