@@ -22,6 +22,19 @@ require_command() {
   fi
 }
 
+copy_local_ffmpeg_if_available() {
+  local target_path="$1"
+  if command -v ffmpeg >/dev/null 2>&1; then
+    local local_ffmpeg
+    local_ffmpeg="$(command -v ffmpeg)"
+    cp "${local_ffmpeg}" "${target_path}"
+    chmod +x "${target_path}"
+    echo "==> Using local ffmpeg from PATH: ${local_ffmpeg}"
+    return 0
+  fi
+  return 1
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$PROJECT_ROOT"
@@ -63,28 +76,61 @@ if [[ "${FORCE_DOWNLOAD}" -eq 1 || ! -f "${FFMPEG_PATH}" ]]; then
   echo "==> Downloading ffmpeg"
   ARCH="$(uname -m)"
   if [[ "${ARCH}" == "arm64" ]]; then
-    FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macosarm64-gpl.zip"
+    FFMPEG_URLS=(
+      "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macosarm64-gpl.zip"
+      "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macosarm64-lgpl.zip"
+      "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-macosarm64-gpl-7.1.zip"
+      "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-macosarm64-lgpl-7.1.zip"
+    )
   else
-    FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macos64-gpl.zip"
+    FFMPEG_URLS=(
+      "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macos64-gpl.zip"
+      "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macos64-lgpl.zip"
+      "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-macos64-gpl-7.1.zip"
+      "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-macos64-lgpl-7.1.zip"
+    )
   fi
 
-  TMP_ZIP="$(mktemp -t ffmpeg_zip_XXXXXX).zip"
-  TMP_DIR="$(mktemp -d -t ffmpeg_extract_XXXXXX)"
-  curl -fL "${FFMPEG_URL}" -o "${TMP_ZIP}"
-  unzip -q "${TMP_ZIP}" -d "${TMP_DIR}"
-
-  FOUND_FFMPEG="$(find "${TMP_DIR}" -type f -name ffmpeg | head -n 1 || true)"
-  if [[ -z "${FOUND_FFMPEG}" ]]; then
-    echo "ffmpeg binary was not found in extracted archive"
+  DOWNLOAD_OK=0
+  for FFMPEG_URL in "${FFMPEG_URLS[@]}"; do
+    TMP_ZIP="$(mktemp -t ffmpeg_zip_XXXXXX).zip"
+    TMP_DIR="$(mktemp -d -t ffmpeg_extract_XXXXXX)"
+    if curl -fL "${FFMPEG_URL}" -o "${TMP_ZIP}"; then
+      unzip -q "${TMP_ZIP}" -d "${TMP_DIR}" || true
+      FOUND_FFMPEG="$(find "${TMP_DIR}" -type f -name ffmpeg | head -n 1 || true)"
+      if [[ -n "${FOUND_FFMPEG}" ]]; then
+        cp "${FOUND_FFMPEG}" "${FFMPEG_PATH}"
+        chmod +x "${FFMPEG_PATH}"
+        DOWNLOAD_OK=1
+        rm -f "${TMP_ZIP}"
+        rm -rf "${TMP_DIR}"
+        break
+      fi
+    fi
     rm -f "${TMP_ZIP}"
     rm -rf "${TMP_DIR}"
-    exit 1
+  done
+
+  if [[ "${DOWNLOAD_OK}" -eq 0 ]]; then
+    echo "==> Download sources failed, checking local/Homebrew ffmpeg"
+    if ! copy_local_ffmpeg_if_available "${FFMPEG_PATH}"; then
+      if command -v brew >/dev/null 2>&1; then
+        echo "==> Installing ffmpeg with Homebrew"
+        brew install ffmpeg
+        copy_local_ffmpeg_if_available "${FFMPEG_PATH}" || true
+      fi
+    fi
   fi
 
-  cp "${FOUND_FFMPEG}" "${FFMPEG_PATH}"
-  chmod +x "${FFMPEG_PATH}"
-  rm -f "${TMP_ZIP}"
-  rm -rf "${TMP_DIR}"
+  if [[ ! -f "${FFMPEG_PATH}" ]]; then
+    echo "Could not provision ffmpeg automatically."
+    echo "Tried URLs:"
+    for FFMPEG_URL in "${FFMPEG_URLS[@]}"; do
+      echo "  - ${FFMPEG_URL}"
+    done
+    echo "Install ffmpeg manually (brew install ffmpeg), then rerun."
+    exit 1
+  fi
 else
   echo "==> ffmpeg already present, skipping download"
 fi
