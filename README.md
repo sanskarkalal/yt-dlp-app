@@ -49,7 +49,7 @@ Follow these steps in order.
 ## 1️⃣ Clone the Repository
 
 ```bash
-git clone https://github.com/sanskarkalal/yt-dlp-app.git
+git clone https://github.com/your-username/yt-dlp-app.git
 cd yt-dlp-app
 ```
 
@@ -278,4 +278,55 @@ OR enable Developer Mode in Windows Settings
 MIT — use it, modify it, distribute it.
 
 ```
+```
+
+## Windows one-click setup
+
+From project root, double-click `setup-and-install.bat` (or run it in terminal). It will install npm deps, download yt-dlp/ffmpeg, build the Windows installer, and launch the generated setup `.exe`.
+
+CLI alternative:
+
+```powershell
+npm run setup:win
+```
+
+## macOS one-click setup
+
+From project root on macOS:
+
+```bash
+npm run setup:mac
+```
+
+If you prefer Finder double-click, first make launchers executable once:
+
+```bash
+chmod +x setup-and-install-mac.command scripts/setup-and-install-mac.sh
+./setup-and-install-mac.command
+```
+
+## GitHub Releases steps
+
+1. Bump version in `package.json` (for example `1.0.1`).
+2. Commit all changes and push your branch.
+3. Build installers:
+   - On Windows: `npm run setup:win` (or `npm run dist:win` if binaries already present)
+   - On macOS: `npm run setup:mac` (or `npm run dist:mac` if binaries already present)
+4. Verify artifacts exist in `release/` (`*.exe` and `*.dmg`).
+5. Tag and push:
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+6. Open GitHub repo -> Releases -> Draft a new release.
+7. Choose tag `v1.0.1`, title it (for example `v1.0.1`), add changelog notes.
+8. Upload files from `release/` (Windows setup `.exe` and macOS `.dmg`).
+9. Publish release.
+
+Optional GitHub CLI flow:
+
+```bash
+gh release create v1.0.1 release/*.exe release/*.dmg --title "v1.0.1" --notes "Bug fixes and installer updates"
 ```

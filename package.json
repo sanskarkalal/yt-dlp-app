@@ -8,6 +8,8 @@
     "dev": "concurrently \"npm run dev:vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "build": "vite build",
     "preview": "vite preview",
+    "setup:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-and-install.ps1",
+    "setup:mac": "bash ./scripts/setup-and-install-mac.sh",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac"
