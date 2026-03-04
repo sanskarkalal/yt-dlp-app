@@ -884,15 +884,19 @@ export default function App() {
           f.codec === selectedCodec &&
           f.bitrate === selectedBitrate,
       );
-      const resolvedFormatId =
+      const videoFormatId =
         selectedRaw?.format_id ??
-        (() => {
-          // fallback: best format at selected height
-          const fallback = videoInfo?.rawFormats
-            ?.filter((f) => f.height === selectedHeight)
-            .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
-          return fallback?.format_id || "bestvideo+bestaudio";
-        })();
+        videoInfo?.rawFormats
+          ?.filter((f) => f.height === selectedHeight)
+          .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0]?.format_id;
+
+      // Most YouTube streams above 480p are video-only — append +bestaudio so
+      // yt-dlp fetches a separate audio track and merges it via ffmpeg.
+      const resolvedFormatId = videoFormatId
+        ? selectedRaw?.hasMuxedAudio
+          ? videoFormatId
+          : `${videoFormatId}+bestaudio/best`
+        : "bestvideo+bestaudio/best";
 
       const result = await window.electronAPI.download({
         url,

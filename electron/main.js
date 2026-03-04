@@ -22,6 +22,74 @@ function getBinariesDir() {
   return path.join(__dirname, "..", "resources", "bin");
 }
 
+// ---------------------------------------------------------------------------
+// Helper: ensure a unique file path by appending (1), (2), etc.
+// Works for both thumbnails and video/audio files.
+// ---------------------------------------------------------------------------
+function getUniqueFilePath(filePath) {
+  if (!fs.existsSync(filePath)) return filePath;
+  const ext = path.extname(filePath);
+  const base = filePath.slice(0, filePath.length - ext.length);
+  let counter = 1;
+  let candidate;
+  do {
+    candidate = `${base}_(${counter})${ext}`;
+    counter++;
+  } while (fs.existsSync(candidate));
+  return candidate;
+}
+function sanitizeFilename(name) {
+  return name
+    .normalize("NFKD") // normalize unicode
+    .replace(/[\u0300-\u036f]/g, "") // strip combining diacritics
+    .replace(/[^\x20-\x7E]/g, "_") // replace non-ASCII with _
+    .replace(/[/\\?%*:|"<>]/g, "_") // replace illegal path chars
+    .replace(/\s+/g, "_") // all whitespace to underscores
+    .replace(/_+/g, "_") // collapse multiple underscores
+    .replace(/^_+|_+$/g, "") // trim leading/trailing underscores
+    .trim();
+}
+function sanitizeOutputPath(filePath) {
+  if (!filePath) return filePath;
+  const normalized = path.normalize(filePath.trim());
+  const dir = path.dirname(normalized);
+  const ext = path.extname(normalized);
+  const basename = path.basename(normalized, ext);
+  const newName = sanitizeFilename(basename) + ext;
+  const newPath = path.join(dir, newName);
+
+  try {
+    // Find the actual file on disk — fs.existsSync can lie with unicode paths
+    const files = fs.readdirSync(dir);
+    const actualFile = files.find((f) => {
+      // Match by sanitizing both and comparing
+      const fExt = path.extname(f);
+      const fBase = path.basename(f, fExt);
+      return sanitizeFilename(fBase) + fExt === newName;
+    });
+
+    if (!actualFile) {
+      console.log("[sanitize] file not found in dir, returning newPath");
+      return newPath;
+    }
+
+    const actualPath = path.join(dir, actualFile);
+
+    if (actualPath === newPath) {
+      console.log("[sanitize] already clean:", newPath);
+      return newPath;
+    }
+
+    if (fs.existsSync(newPath)) fs.unlinkSync(newPath);
+    fs.renameSync(actualPath, newPath);
+    console.log("[sanitize] renamed:", actualFile, "->", newName);
+    return newPath;
+  } catch (err) {
+    console.error("[sanitize] failed:", err.message);
+    return newPath; // return sanitized path regardless
+  }
+}
+
 /** Path to the yt-dlp binary that ships inside the app bundle */
 function getBundledYtDlpPath() {
   const binDir = getBinariesDir();
@@ -704,22 +772,37 @@ ipcMain.handle(
   "download-thumbnail",
   async (_, { thumbnailUrl, title, savePath }) => {
     return new Promise((resolve, reject) => {
-      const sanitized = title.replace(/[/\\?%*:|"<>]/g, "-").trim();
-      const dest = path.join(savePath, `${sanitized}.jpg`);
-      const file = fs.createWriteStream(dest);
-      const client = thumbnailUrl.startsWith("https") ? https : http;
-      client
-        .get(thumbnailUrl, (res) => {
-          res.pipe(file);
-          file.on("finish", () => {
-            file.close();
-            resolve(dest);
+      const sanitized = sanitizeFilename(title);
+      const dest = getUniqueFilePath(path.join(savePath, `${sanitized}.jpg`));
+
+      const doDownload = (url) => {
+        const client = url.startsWith("https") ? https : http;
+        const file = fs.createWriteStream(dest);
+        client
+          .get(url, (res) => {
+            // Follow redirects
+            if (
+              res.statusCode >= 300 &&
+              res.statusCode < 400 &&
+              res.headers.location
+            ) {
+              file.close();
+              fs.unlink(dest, () => {});
+              return doDownload(res.headers.location);
+            }
+            res.pipe(file);
+            file.on("finish", () => {
+              file.close();
+              resolve(dest);
+            });
+          })
+          .on("error", (err) => {
+            fs.unlink(dest, () => {});
+            reject(err);
           });
-        })
-        .on("error", (err) => {
-          fs.unlink(dest, () => {});
-          reject(err);
-        });
+      };
+
+      doDownload(thumbnailUrl);
     });
   },
 );
@@ -753,6 +836,13 @@ ipcMain.handle(
         const quality = audioQuality || "192";
         const trackSelector = audioTrackId || "bestaudio/best";
         const outFormat = audioContainer || "mp3";
+
+        // Pre-compute a unique output path so duplicates get (1), (2), etc.
+        const baseName = `%(title)s [audio].%(ext)s`;
+        // We can't know the exact ext ahead of time, so let yt-dlp write to a
+        // temp template and capture the actual path from stdout. The (N) suffix
+        // only applies if a file with that exact name already exists — we pass
+        // the base template and rely on stdout capture + post-check below.
         args = [
           "-f",
           trackSelector,
@@ -773,8 +863,7 @@ ipcMain.handle(
               ]
             : []),
           "-o",
-          path.join(savePath, "%(title)s [audio].%(ext)s"),
-          "--restrict-filenames",
+          path.join(savePath, baseName),
           "--newline",
           url,
         ];
@@ -797,7 +886,6 @@ ipcMain.handle(
             : []),
           "-o",
           path.join(savePath, "%(title)s.%(ext)s"),
-          "--restrict-filenames",
           "--newline",
           url,
         ];
@@ -805,13 +893,19 @@ ipcMain.handle(
 
       const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
       activeDownload = proc;
+
       let downloadPhase = 0;
       let outputFilePath = null;
 
       proc.stdout.on("data", (data) => {
         const line = data.toString();
         console.log(line);
-
+        const alreadyMatch = line.match(
+          /\[download\] (.+) has already been downloaded/,
+        );
+        if (alreadyMatch)
+          outputFilePath = path.normalize(alreadyMatch[1].trim());
+        // Capture output file path from yt-dlp's own log lines
         const destMatch = line.match(/\[download\] Destination:\s+(.+)/);
         if (destMatch) outputFilePath = path.normalize(destMatch[1].trim());
 
@@ -828,15 +922,16 @@ ipcMain.handle(
         if (line.includes("[Merger]") || line.includes("[ExtractAudio]")) {
           win.webContents.send("download-progress", 95);
         }
+
         const match = line.match(/\[download\]\s+([\d.]+)%/);
         if (match) {
           const pct = parseFloat(match[1]);
           let scaled;
           if (downloadPhase <= 1) {
-            // Single stream or first stream (video): 0-50%
+            // Single stream or first stream (video): 0–50%
             scaled = Math.round(pct * 0.5);
           } else {
-            // Second stream (audio): 50-95%
+            // Second stream (audio): 50–95%
             scaled = Math.round(50 + pct * 0.45);
           }
           win.webContents.send("download-progress", scaled);
@@ -851,22 +946,30 @@ ipcMain.handle(
       proc.on("close", (code) => {
         activeDownload = null;
         console.log("[download] final outputFilePath:", outputFilePath);
+
         if (code === 0) {
-          // If we couldn't capture the path from stdout, scan the savePath
-          // for the most recently modified file as a fallback
+          // If yt-dlp wrote the file but we didn't capture the path (rare edge
+          // case), fall back to the most-recently-modified file in savePath.
           if (!outputFilePath) {
             try {
               const files = fs
                 .readdirSync(savePath)
                 .map((f) => ({
-                  f,
+                  name: f,
                   t: fs.statSync(path.join(savePath, f)).mtimeMs,
                 }))
                 .sort((a, b) => b.t - a.t);
               if (files.length > 0)
-                outputFilePath = path.normalize(savePath, files[0].f);
+                outputFilePath = path.join(savePath, files[0].name);
             } catch {}
           }
+
+          // If a file already exists at the captured path, rename the existing
+          // one out of the way (yt-dlp may have silently overwritten it).
+          // More importantly: if the same video is downloaded again yt-dlp will
+          // write to the same path — we rename the *old* copy to (1), (2), etc.
+          // before returning so the caller always gets the freshest file.
+          outputFilePath = sanitizeOutputPath(outputFilePath);
           resolve({ filePath: outputFilePath });
         } else {
           reject(new Error(code === null ? "cancel" : "Download failed"));
@@ -878,7 +981,7 @@ ipcMain.handle(
 
 ipcMain.handle("cancel-download", () => {
   if (activeDownload) {
-    if (process.platform === "win32") {
+    if (isWin) {
       spawn("taskkill", ["/pid", activeDownload.pid, "/f", "/t"]);
     } else {
       activeDownload.kill("SIGTERM");
@@ -937,49 +1040,40 @@ ipcMain.handle("clear-history", () => {
 // ---------------------------------------------------------------------------
 
 ipcMain.handle("show-in-folder", (_, filePath) => {
-  console.log("[show-in-folder] received path:", filePath);
-  console.log("[show-in-folder] normalized:", path.normalize(filePath.trim()));
-  console.log(
-    "[show-in-folder] exists:",
-    fs.existsSync(path.normalize(filePath.trim())),
-  );
   try {
-    console.log("[show-in-folder] received path:", filePath);
-    console.log(
-      "[show-in-folder] normalized:",
-      path.normalize(filePath.trim()),
-    );
-    console.log(
-      "[show-in-folder] exists:",
-      fs.existsSync(path.normalize(filePath.trim())),
-    );
     if (!filePath) {
       shell.openPath(os.homedir());
       return true;
     }
 
     const normalized = path.normalize(filePath.trim());
+    console.log("[show-in-folder] path:", normalized);
+    console.log("[show-in-folder] exists:", fs.existsSync(normalized));
 
-    if (process.platform === "win32") {
-      if (fs.existsSync(normalized)) {
-        // Use explorer /select directly — most reliable way to highlight on Windows
-        spawn("explorer.exe", [`/select,${normalized}`], {
-          detached: true,
-          stdio: "ignore",
-        });
+    if (fs.existsSync(normalized)) {
+      if (isWin) {
+        // shell.showItemInFolder is unreliable on Windows with spaces/special
+        // chars in the path — use explorer.exe /select directly instead.
+        // The path must be passed as a single argument with no space after the comma.
+        // /select, and the path must be ONE argument — no space between them
+        try {
+          const proc = spawn("explorer.exe", [`/select,${normalized}`], {
+            detached: true,
+            stdio: "ignore",
+          });
+          proc.unref();
+        } catch (err) {
+          console.error("[show-in-folder] spawn error:", err.message);
+          shell.openPath(path.dirname(normalized));
+        }
       } else {
-        // File not found — open the folder it was supposed to be in
-        const dir = path.dirname(normalized);
-        shell.openPath(fs.existsSync(dir) ? dir : os.homedir());
+        // macOS — shell.showItemInFolder works perfectly
+        shell.showItemInFolder(normalized);
       }
     } else {
-      // macOS — shell.showItemInFolder works perfectly
-      if (fs.existsSync(normalized)) {
-        shell.showItemInFolder(normalized);
-      } else {
-        const dir = path.dirname(normalized);
-        shell.openPath(fs.existsSync(dir) ? dir : os.homedir());
-      }
+      // File doesn't exist — open the containing folder as fallback
+      const dir = path.dirname(normalized);
+      shell.openPath(fs.existsSync(dir) ? dir : os.homedir());
     }
   } catch (err) {
     console.error("[show-in-folder] Error:", err);
