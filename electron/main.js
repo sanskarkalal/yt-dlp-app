@@ -856,11 +856,7 @@ ipcMain.handle(
           ...resolveJsRuntimeArgs(),
           ...cookieArgs(),
           ...(clipStart && clipEnd
-            ? [
-                "--download-sections",
-                `*${clipStart}-${clipEnd}`,
-                "--force-keyframes-at-cuts",
-              ]
+            ? ["--download-sections", `*${clipStart}-${clipEnd}`]
             : []),
           "-o",
           path.join(savePath, baseName),
@@ -878,11 +874,7 @@ ipcMain.handle(
           ...resolveJsRuntimeArgs(),
           ...cookieArgs(),
           ...(clipStart && clipEnd
-            ? [
-                "--download-sections",
-                `*${clipStart}-${clipEnd}`,
-                "--force-keyframes-at-cuts",
-              ]
+            ? ["--download-sections", `*${clipStart}-${clipEnd}`]
             : []),
           "-o",
           path.join(savePath, "%(title)s.%(ext)s"),
