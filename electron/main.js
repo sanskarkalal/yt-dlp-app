@@ -833,8 +833,26 @@ ipcMain.handle(
       });
       proc.on("close", (code) => {
         activeDownload = null;
-        if (code === 0) resolve({ filePath: outputFilePath });
-        else reject(new Error(code === null ? "cancel" : "Download failed"));
+        if (code === 0) {
+          // If we couldn't capture the path from stdout, scan the savePath
+          // for the most recently modified file as a fallback
+          if (!outputFilePath) {
+            try {
+              const files = fs
+                .readdirSync(savePath)
+                .map((f) => ({
+                  f,
+                  t: fs.statSync(path.join(savePath, f)).mtimeMs,
+                }))
+                .sort((a, b) => b.t - a.t);
+              if (files.length > 0)
+                outputFilePath = path.join(savePath, files[0].f);
+            } catch {}
+          }
+          resolve({ filePath: outputFilePath });
+        } else {
+          reject(new Error(code === null ? "cancel" : "Download failed"));
+        }
       });
     });
   },
