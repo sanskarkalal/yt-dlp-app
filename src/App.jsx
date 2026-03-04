@@ -742,7 +742,7 @@ export default function App() {
   useEffect(() => {
     const target = progress;
     const animate = () => {
-      progressRef.current += (target - progressRef.current) * 0.08;
+      progressRef.current += (target - progressRef.current) * 0.15;
       setSmoothProgress(parseFloat(progressRef.current.toFixed(2)));
       if (Math.abs(progressRef.current - target) > 0.1) {
         animFrameRef.current = requestAnimationFrame(animate);

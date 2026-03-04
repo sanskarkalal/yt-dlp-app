@@ -803,7 +803,7 @@ ipcMain.handle(
 
       const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
       activeDownload = proc;
-
+      let downloadPhase = 0;
       let outputFilePath = null;
 
       proc.stdout.on("data", (data) => {
@@ -811,18 +811,33 @@ ipcMain.handle(
         console.log(line);
 
         const destMatch = line.match(/\[download\] Destination:\s+(.+)/);
-        if (destMatch) outputFilePath = destMatch[1].trim();
+        if (destMatch) outputFilePath = path.normalize(destMatch[1].trim());
 
         const mergeMatch = line.match(/\[Merger\] Merging formats into "(.+)"/);
-        if (mergeMatch) outputFilePath = mergeMatch[1].trim();
+        if (mergeMatch) outputFilePath = path.normalize(mergeMatch[1].trim());
 
         const audioMatch = line.match(/\[ExtractAudio\] Destination:\s+(.+)/);
-        if (audioMatch) outputFilePath = audioMatch[1].trim();
+        if (audioMatch) outputFilePath = path.normalize(audioMatch[1].trim());
 
+        // Track download phase for multi-stream (video+audio separate)
+        if (line.includes("[download] Destination:")) {
+          downloadPhase = (downloadPhase || 0) + 1;
+        }
+        if (line.includes("[Merger]") || line.includes("[ExtractAudio]")) {
+          win.webContents.send("download-progress", 95);
+        }
         const match = line.match(/\[download\]\s+([\d.]+)%/);
         if (match) {
-          const percent = Math.round(parseFloat(match[1]));
-          win.webContents.send("download-progress", percent);
+          const pct = parseFloat(match[1]);
+          let scaled;
+          if (downloadPhase <= 1) {
+            // Single stream or first stream (video): 0-50%
+            scaled = Math.round(pct * 0.5);
+          } else {
+            // Second stream (audio): 50-95%
+            scaled = Math.round(50 + pct * 0.45);
+          }
+          win.webContents.send("download-progress", scaled);
         }
       });
 
@@ -846,7 +861,7 @@ ipcMain.handle(
                 }))
                 .sort((a, b) => b.t - a.t);
               if (files.length > 0)
-                outputFilePath = path.join(savePath, files[0].f);
+                outputFilePath = path.normalize(savePath, files[0].f);
             } catch {}
           }
           resolve({ filePath: outputFilePath });
