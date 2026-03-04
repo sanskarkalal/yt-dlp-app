@@ -798,7 +798,10 @@ export default function App() {
           )
           .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
         setSelectedBitrate(bitratesAtHeightCodec[0]?.bitrate ?? null);
-        setSelectedContainer(defaultContainerForCodec(codecsAtHeight[0] || ""));
+        const firstFormat = info.rawFormats.find(
+          (f) => f.height === firstHeight && f.codec === codecsAtHeight[0],
+        );
+        setSelectedContainer(firstFormat?.ext || "mp4");
       }
     } catch (err) {
       if (err?.message?.includes("AGE_RESTRICTED")) {
@@ -1497,9 +1500,10 @@ export default function App() {
                                   (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
                                 );
                               setSelectedBitrate(brs[0]?.bitrate ?? null);
-                              setSelectedContainer(
-                                defaultContainerForCodec(codecs[0] || ""),
+                              const firstFmt = raw.find(
+                                (f) => f.height === h && f.codec === codecs[0],
                               );
+                              setSelectedContainer(firstFmt?.ext || "mp4");
                               setDone(false);
                             }}
                             className={selectCls}
@@ -1534,9 +1538,12 @@ export default function App() {
                                   (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
                                 );
                               setSelectedBitrate(brs[0]?.bitrate ?? null);
-                              setSelectedContainer(
-                                defaultContainerForCodec(e.target.value),
+                              const firstFmt = raw.find(
+                                (f) =>
+                                  f.height === selectedHeight &&
+                                  f.codec === e.target.value,
                               );
+                              setSelectedContainer(firstFmt?.ext || "mp4");
                               setDone(false);
                             }}
                             className={selectCls}
@@ -1595,10 +1602,19 @@ export default function App() {
                               setDone(false);
                             }}
                           >
-                            {(selectedCodec === "VP9" || selectedCodec === "AV1"
-                              ? ["webm", "mkv"]
-                              : ["mp4", "mkv"]
-                            ).map((c) => (
+                            {[
+                              ...new Set([
+                                ...raw
+                                  .filter(
+                                    (f) =>
+                                      f.height === selectedHeight &&
+                                      f.codec === selectedCodec,
+                                  )
+                                  .map((f) => f.ext)
+                                  .filter(Boolean),
+                                "mkv",
+                              ]),
+                            ].map((c) => (
                               <option key={c} value={c} className={optCls}>
                                 {c.toUpperCase()}
                               </option>
