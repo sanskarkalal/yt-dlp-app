@@ -774,6 +774,7 @@ ipcMain.handle(
             : []),
           "-o",
           path.join(savePath, "%(title)s [audio].%(ext)s"),
+          "--restrict-filenames",
           "--newline",
           url,
         ];
@@ -796,6 +797,7 @@ ipcMain.handle(
             : []),
           "-o",
           path.join(savePath, "%(title)s.%(ext)s"),
+          "--restrict-filenames",
           "--newline",
           url,
         ];
@@ -848,6 +850,7 @@ ipcMain.handle(
       });
       proc.on("close", (code) => {
         activeDownload = null;
+        console.log("[download] final outputFilePath:", outputFilePath);
         if (code === 0) {
           // If we couldn't capture the path from stdout, scan the savePath
           // for the most recently modified file as a fallback
@@ -934,15 +937,52 @@ ipcMain.handle("clear-history", () => {
 // ---------------------------------------------------------------------------
 
 ipcMain.handle("show-in-folder", (_, filePath) => {
-  if (filePath) {
-    const normalized = path.normalize(filePath);
-    if (fs.existsSync(normalized)) {
-      shell.showItemInFolder(normalized);
-    } else {
-      const dir = path.dirname(normalized);
-      shell.openPath(fs.existsSync(dir) ? dir : os.homedir());
+  console.log("[show-in-folder] received path:", filePath);
+  console.log("[show-in-folder] normalized:", path.normalize(filePath.trim()));
+  console.log(
+    "[show-in-folder] exists:",
+    fs.existsSync(path.normalize(filePath.trim())),
+  );
+  try {
+    console.log("[show-in-folder] received path:", filePath);
+    console.log(
+      "[show-in-folder] normalized:",
+      path.normalize(filePath.trim()),
+    );
+    console.log(
+      "[show-in-folder] exists:",
+      fs.existsSync(path.normalize(filePath.trim())),
+    );
+    if (!filePath) {
+      shell.openPath(os.homedir());
+      return true;
     }
-  } else {
+
+    const normalized = path.normalize(filePath.trim());
+
+    if (process.platform === "win32") {
+      if (fs.existsSync(normalized)) {
+        // Use explorer /select directly — most reliable way to highlight on Windows
+        spawn("explorer.exe", [`/select,${normalized}`], {
+          detached: true,
+          stdio: "ignore",
+        });
+      } else {
+        // File not found — open the folder it was supposed to be in
+        const dir = path.dirname(normalized);
+        shell.openPath(fs.existsSync(dir) ? dir : os.homedir());
+      }
+    } else {
+      // macOS — shell.showItemInFolder works perfectly
+      if (fs.existsSync(normalized)) {
+        shell.showItemInFolder(normalized);
+      } else {
+        const dir = path.dirname(normalized);
+        shell.openPath(fs.existsSync(dir) ? dir : os.homedir());
+      }
+    }
+  } catch (err) {
+    console.error("[show-in-folder] Error:", err);
     shell.openPath(os.homedir());
   }
   return true;
