@@ -128,7 +128,7 @@ function HistoryDrawer({ open, onClose }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showConfirm, setShowConfirm] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-
+  const [botDetected, setBotDetected] = useState(false);
   useEffect(() => {
     if (open) window.electronAPI.getHistory().then(setHistory);
     else setSelectedIds(new Set()); // clear selection when drawer closes
@@ -777,6 +777,13 @@ export default function App() {
         setStatus("");
         return;
       }
+      if (info?.botDetected) {
+        setPendingUrl(urlToFetch);
+        setBotDetected(true);
+        setShowLoginPrompt(true);
+        setStatus("");
+        return;
+      }
       setVideoInfo(info);
       if (info.rawFormats?.length > 0) {
         const heights = [...new Set(info.rawFormats.map((f) => f.height))].sort(
@@ -819,6 +826,7 @@ export default function App() {
   const handleYouTubeLogin = async () => {
     setLoggingIn(true);
     setShowLoginPrompt(false);
+    setBotDetected(false);
     setStatus("Waiting for YouTube sign-in...");
     try {
       const success = await window.electronAPI.openYouTubeLogin();
@@ -1176,14 +1184,18 @@ export default function App() {
         {showLoginPrompt && (
           <div className="flex-shrink-0 bg-white/5 border border-white/15 rounded-xl p-4 flex items-center gap-4">
             <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 text-lg">
-              🔞
+              {botDetected ? "🤖" : "🔞"}
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium text-white/80">
-                Age-restricted video
+                {botDetected
+                  ? "YouTube thinks you're a bot"
+                  : "Age-restricted video"}
               </p>
               <p className="text-xs text-white/40 mt-0.5">
-                Sign in to YouTube to access this video
+                {botDetected
+                  ? "Sign in to verify it's you and continue downloading"
+                  : "Sign in to YouTube to access this video"}
               </p>
             </div>
             <button

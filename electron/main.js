@@ -634,6 +634,10 @@ ipcMain.handle("get-video-info", async (_, url) => {
           errorOutput.includes("age-restricted") ||
           errorOutput.includes("inappropriate for some users");
         if (isAgeRestricted) return resolve({ ageRestricted: true });
+        const isBotDetected =
+          errorOutput.includes("Sign in to confirm you") ||
+          errorOutput.includes("confirm you're not a bot");
+        if (isBotDetected) return resolve({ botDetected: true });
         return reject(new Error(`yt-dlp failed: ${errorOutput.slice(0, 300)}`));
       }
       try {
