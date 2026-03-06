@@ -59,18 +59,33 @@ fi
 echo "==> Installing npm dependencies"
 npm install
 
+echo "==> Ensuring tree-kill is installed"
+if ! node -e "require('tree-kill')" 2>/dev/null; then
+  npm install tree-kill --save
+fi
+
 MAC_BIN_DIR="${PROJECT_ROOT}/resources/bin/mac"
 mkdir -p "${MAC_BIN_DIR}"
 
+# ── yt-dlp ──────────────────────────────────────────────────────────────────
 YTDLP_PATH="${MAC_BIN_DIR}/yt-dlp"
-if [[ "${FORCE_DOWNLOAD}" -eq 1 || ! -f "${YTDLP_PATH}" ]]; then
-  echo "==> Downloading yt-dlp"
+LATEST_YTDLP="$(curl -fsSL https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest \
+  | grep '"tag_name"' \
+  | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+CURRENT_YTDLP=""
+if [[ -f "${YTDLP_PATH}" ]]; then
+  CURRENT_YTDLP="$("${YTDLP_PATH}" --version 2>/dev/null || true)"
+fi
+
+if [[ "${FORCE_DOWNLOAD}" -eq 1 || ! -f "${YTDLP_PATH}" || "${CURRENT_YTDLP}" != "${LATEST_YTDLP}" ]]; then
+  echo "==> Downloading yt-dlp (latest: ${LATEST_YTDLP}, current: ${CURRENT_YTDLP:-none})"
   curl -fL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o "${YTDLP_PATH}"
   chmod +x "${YTDLP_PATH}"
 else
-  echo "==> yt-dlp already present, skipping download"
+  echo "==> yt-dlp already up to date (${CURRENT_YTDLP})"
 fi
 
+# ── ffmpeg ───────────────────────────────────────────────────────────────────
 FFMPEG_PATH="${MAC_BIN_DIR}/ffmpeg"
 if [[ "${FORCE_DOWNLOAD}" -eq 1 || ! -f "${FFMPEG_PATH}" ]]; then
   echo "==> Downloading ffmpeg"

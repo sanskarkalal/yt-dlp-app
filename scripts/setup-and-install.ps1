@@ -46,17 +46,36 @@ if ($LASTEXITCODE -ne 0) {
   throw "npm install failed"
 }
 
+Write-Host "==> Ensuring tree-kill is installed"
+$treeKillCheck = node -e "require('tree-kill'); process.exit(0)" 2>&1
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "==> Installing tree-kill"
+  npm install tree-kill --save
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to install tree-kill"
+  }
+}
+
 $winBinDir = Join-Path $projectRoot "resources\bin\win"
 New-Item -ItemType Directory -Force -Path $winBinDir | Out-Null
 
+# ── yt-dlp ───────────────────────────────────────────────────────────────────
 $ytDlpPath = Join-Path $winBinDir "yt-dlp.exe"
-if ($ForceDownload -or -not (Test-Path $ytDlpPath)) {
-  Write-Host "==> Downloading yt-dlp"
-  Download-File -Url "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile $ytDlpPath
-} else {
-  Write-Host "==> yt-dlp already present, skipping download"
+$latestYtDlp = (Invoke-RestMethod -Uri "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest").tag_name
+$currentYtDlp = ""
+if (Test-Path $ytDlpPath) {
+  $currentYtDlp = (& $ytDlpPath --version 2>$null) -join ""
 }
 
+if ($ForceDownload -or -not (Test-Path $ytDlpPath) -or $currentYtDlp -ne $latestYtDlp) {
+  Write-Host "==> Downloading yt-dlp (latest: $latestYtDlp, current: $(if ($currentYtDlp) { $currentYtDlp } else { 'none' }))"
+  Download-File -Url "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile $ytDlpPath
+}
+else {
+  Write-Host "==> yt-dlp already up to date ($currentYtDlp)"
+}
+
+# ── ffmpeg ───────────────────────────────────────────────────────────────────
 $ffmpegPath = Join-Path $winBinDir "ffmpeg.exe"
 if ($ForceDownload -or -not (Test-Path $ffmpegPath)) {
   Write-Host "==> Downloading ffmpeg"
@@ -75,7 +94,8 @@ if ($ForceDownload -or -not (Test-Path $ffmpegPath)) {
 
   Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
   Remove-Item -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue
-} else {
+}
+else {
   Write-Host "==> ffmpeg already present, skipping download"
 }
 
