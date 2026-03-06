@@ -166,4 +166,5 @@ if [[ "${SKIP_INSTALLER_LAUNCH}" -eq 0 ]]; then
   open "${INSTALLER_PATH}"
 fi
 
+
 echo "==> Done"
