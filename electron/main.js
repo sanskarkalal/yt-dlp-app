@@ -47,17 +47,17 @@ function sanitizeFilename(name) {
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^\x20-\x7E]/g, "_")
-    .replace(/[/\\?%*:|"<>]/g, "_")
+    .replace(/[/\\?%*:|"<>｜⧸／＼]/g, "_")
     .replace(/\s+/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "")
     .trim();
 }
 
-function sanitizeOutputPath(filePath) {
+function sanitizeOutputPath(filePath, saveDir) {
   if (!filePath) return filePath;
   const normalized = path.normalize(filePath.trim());
-  const dir = path.dirname(normalized);
+  const dir = saveDir ? path.normalize(saveDir) : path.dirname(normalized);
   const ext = path.extname(normalized);
   const basename = path.basename(normalized, ext);
   const newName = sanitizeFilename(basename) + ext;
@@ -68,7 +68,43 @@ function sanitizeOutputPath(filePath) {
     // Use readdirSync — fs.existsSync lies with emoji/unicode on macOS
     const dirFiles = fs.readdirSync(dir);
     const originalBasename = path.basename(normalized);
-    const freshFile = dirFiles.find((f) => f === originalBasename);
+    console.log(
+      "[sanitize] looking for:",
+      originalBasename,
+      "in dir, files:",
+      dirFiles,
+    );
+    const stunnMatch = dirFiles.filter((f) =>
+      f.toLowerCase().includes("stunning"),
+    );
+    stunnMatch.forEach((f) => {
+      const fExt = path.extname(f);
+      const fBase = path.basename(f, fExt);
+      console.log(
+        "[sanitize] disk sanitized:",
+        JSON.stringify(sanitizeFilename(fBase) + fExt),
+      );
+    });
+    console.log("[sanitize] newName:", JSON.stringify(newName));
+
+    const normalize = (s) => s.toLowerCase().replace(/[^a-z0-9.]/g, "");
+    const freshFile = dirFiles.find((f) => {
+      const fExt = path.extname(f);
+      const fBase = path.basename(f, fExt);
+      const fSanitized = sanitizeFilename(fBase) + fExt;
+      return (
+        f === originalBasename ||
+        fSanitized === newName ||
+        normalize(fSanitized) === normalize(newName)
+      );
+    });
+    console.log("[sanitize] freshFile:", freshFile);
+    console.log("[sanitize] join:", path.join(dir, freshFile || ""));
+    console.log("[sanitize] newPath:", newPath);
+    console.log(
+      "[sanitize] equal?",
+      freshFile ? path.join(dir, freshFile) === newPath : "n/a",
+    );
     if (freshFile && path.join(dir, freshFile) !== newPath) {
       if (fs.existsSync(newPath)) fs.unlinkSync(newPath);
       fs.renameSync(path.join(dir, freshFile), newPath);
@@ -83,10 +119,12 @@ function sanitizeOutputPath(filePath) {
     }
 
     // Priority 3: scan dir for a match (Windows unicode edge case)
+    // Priority 3: scan dir for a match — compare sanitized versions of both
     const actualFile = dirFiles.find((f) => {
       const fExt = path.extname(f);
       const fBase = path.basename(f, fExt);
-      return sanitizeFilename(fBase) + fExt === newName;
+      const sanitizedF = sanitizeFilename(fBase) + fExt;
+      return sanitizedF === newName;
     });
     if (actualFile) {
       const actualPath = path.join(dir, actualFile);
@@ -887,7 +925,7 @@ ipcMain.handle(
         const outFormat = audioContainer || "mp3";
         const baseName =
           clipStart && clipEnd
-            ? `%(title)s [audio clip ${clipStart}-${clipEnd}].%(ext)s`
+            ? `%(title)s [audio clip ${clipStart.replace(/:/g, ".")}-${clipEnd.replace(/:/g, ".")}].%(ext)s`
             : `%(title)s [audio ${quality}k ${outFormat}].%(ext)s`;
         args = [
           "-f",
@@ -926,7 +964,7 @@ ipcMain.handle(
           path.join(
             savePath,
             clipStart && clipEnd
-              ? `%(title)s [clip ${clipStart}-${clipEnd}].%(ext)s`
+              ? `%(title)s [${height}p ${container}] [clip ${clipStart.replace(/:/g, ".")}-${clipEnd.replace(/:/g, ".")}].%(ext)s`
               : `%(title)s [${height}p ${container}].%(ext)s`,
           ),
           "--newline",
@@ -1040,7 +1078,7 @@ ipcMain.handle(
           }
           activeDownloadFiles = [];
           activeDownloadSavePath = null;
-          outputFilePath = sanitizeOutputPath(outputFilePath);
+          outputFilePath = sanitizeOutputPath(outputFilePath, savePath);
           resolve({ filePath: outputFilePath });
         } else if (cancelRequested || code === null) {
           // Cancel path — process is fully dead, safe to delete files now
