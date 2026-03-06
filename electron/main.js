@@ -885,7 +885,10 @@ ipcMain.handle(
         const quality = audioQuality || "192";
         const trackSelector = audioTrackId || "bestaudio/best";
         const outFormat = audioContainer || "mp3";
-        const baseName = `%(title)s [audio ${quality}k ${outFormat}].%(ext)s`;
+        const baseName =
+          clipStart && clipEnd
+            ? `%(title)s [audio clip ${clipStart}-${clipEnd}].%(ext)s`
+            : `%(title)s [audio ${quality}k ${outFormat}].%(ext)s`;
         args = [
           "-f",
           trackSelector,
