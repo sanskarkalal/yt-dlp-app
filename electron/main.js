@@ -867,6 +867,7 @@ ipcMain.handle(
       url,
       formatId,
       container,
+      height,
       savePath,
       clipStart,
       clipEnd,
@@ -884,7 +885,7 @@ ipcMain.handle(
         const quality = audioQuality || "192";
         const trackSelector = audioTrackId || "bestaudio/best";
         const outFormat = audioContainer || "mp3";
-        const baseName = `%(title)s [audio].%(ext)s`;
+        const baseName = `%(title)s [audio ${quality}k ${outFormat}].%(ext)s`;
         args = [
           "-f",
           trackSelector,
@@ -919,12 +920,24 @@ ipcMain.handle(
             ? ["--download-sections", `*${clipStart}-${clipEnd}`]
             : []),
           "-o",
-          path.join(savePath, "%(title)s.%(ext)s"),
+          path.join(
+            savePath,
+            clipStart && clipEnd
+              ? `%(title)s [clip ${clipStart}-${clipEnd}].%(ext)s`
+              : `%(title)s [${height}p ${container}].%(ext)s`,
+          ),
           "--newline",
           url,
         ];
       }
-
+      console.log(
+        "[download] height:",
+        height,
+        "container:",
+        container,
+        "clipStart:",
+        clipStart,
+      );
       const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
       activeDownload = proc;
       activeDownloadSavePath = savePath;

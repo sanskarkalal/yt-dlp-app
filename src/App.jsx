@@ -911,6 +911,7 @@ export default function App() {
         formatId: resolvedFormatId,
         container: selectedContainer,
         savePath,
+        height: selectedHeight,
         clipStart: clipStart.trim() || null,
         clipEnd: clipEnd.trim() || null,
         audioOnly,
