@@ -59,34 +59,44 @@ function sanitizeOutputPath(filePath) {
   const newPath = path.join(dir, newName);
 
   try {
-    // Find the actual file on disk — fs.existsSync can lie with unicode paths
-    const files = fs.readdirSync(dir);
-    const actualFile = files.find((f) => {
-      // Match by sanitizing both and comparing
-      const fExt = path.extname(f);
-      const fBase = path.basename(f, fExt);
-      return sanitizeFilename(fBase) + fExt === newName;
-    });
-
-    if (!actualFile) {
-      console.log("[sanitize] file not found in dir, returning newPath");
+    // Priority 1: fresh download exists at the original unicode/unsanitized path
+    // Priority 1: fresh download exists at the original unicode/unsanitized path
+    // Use readdirSync — fs.existsSync lies with emoji/unicode on macOS
+    const dirFiles = fs.readdirSync(dir);
+    const originalBasename = path.basename(normalized);
+    const freshFile = dirFiles.find((f) => f === originalBasename);
+    if (freshFile && path.join(dir, freshFile) !== newPath) {
+      if (fs.existsSync(newPath)) fs.unlinkSync(newPath);
+      fs.renameSync(path.join(dir, freshFile), newPath);
+      console.log("[sanitize] renamed:", freshFile, "->", newName);
       return newPath;
     }
 
-    const actualPath = path.join(dir, actualFile);
-
-    if (actualPath === newPath) {
+    // Priority 2: file already exists at the sanitized path (already clean)
+    if (fs.existsSync(newPath)) {
       console.log("[sanitize] already clean:", newPath);
       return newPath;
     }
 
-    if (fs.existsSync(newPath)) fs.unlinkSync(newPath);
-    fs.renameSync(actualPath, newPath);
-    console.log("[sanitize] renamed:", actualFile, "->", newName);
+    // Priority 3: scan dir for a match (Windows unicode edge case)
+    const files = fs.readdirSync(dir);
+    // Priority 3: scan dir for a match (Windows unicode edge case)
+    const actualFile = dirFiles.find((f) => {
+      const fExt = path.extname(f);
+      const fBase = path.basename(f, fExt);
+      return sanitizeFilename(fBase) + fExt === newName;
+    });
+    if (actualFile) {
+      const actualPath = path.join(dir, actualFile);
+      if (fs.existsSync(newPath)) fs.unlinkSync(newPath);
+      fs.renameSync(actualPath, newPath);
+      console.log("[sanitize] renamed via scan:", actualFile, "->", newName);
+    }
+
     return newPath;
   } catch (err) {
     console.error("[sanitize] failed:", err.message);
-    return newPath; // return sanitized path regardless
+    return newPath;
   }
 }
 
@@ -391,6 +401,7 @@ function getYtDlpEnv() {
 
 let activeDownload = null;
 let mainWindow = null;
+let activeDownloadFiles = [];
 
 function hasValidCookies(cookiePath) {
   if (!fs.existsSync(cookiePath)) return false;
@@ -903,13 +914,25 @@ ipcMain.handle(
           outputFilePath = path.normalize(alreadyMatch[1].trim());
         // Capture output file path from yt-dlp's own log lines
         const destMatch = line.match(/\[download\] Destination:\s+(.+)/);
-        if (destMatch) outputFilePath = path.normalize(destMatch[1].trim());
+        if (destMatch) {
+          outputFilePath = path.normalize(destMatch[1].trim());
+          if (!activeDownloadFiles.includes(outputFilePath))
+            activeDownloadFiles.push(outputFilePath);
+        }
 
         const mergeMatch = line.match(/\[Merger\] Merging formats into "(.+)"/);
-        if (mergeMatch) outputFilePath = path.normalize(mergeMatch[1].trim());
+        if (mergeMatch) {
+          outputFilePath = path.normalize(mergeMatch[1].trim());
+          if (!activeDownloadFiles.includes(outputFilePath))
+            activeDownloadFiles.push(outputFilePath);
+        }
 
         const audioMatch = line.match(/\[ExtractAudio\] Destination:\s+(.+)/);
-        if (audioMatch) outputFilePath = path.normalize(audioMatch[1].trim());
+        if (audioMatch) {
+          outputFilePath = path.normalize(audioMatch[1].trim());
+          if (!activeDownloadFiles.includes(outputFilePath))
+            activeDownloadFiles.push(outputFilePath);
+        }
 
         // Track download phase for multi-stream (video+audio separate)
         if (line.includes("[download] Destination:")) {
@@ -967,8 +990,10 @@ ipcMain.handle(
           // before returning so the caller always gets the freshest file.
           outputFilePath = sanitizeOutputPath(outputFilePath);
           resolve({ filePath: outputFilePath });
+        } else if (code === null) {
+          resolve({ cancelled: true });
         } else {
-          reject(new Error(code === null ? "cancel" : "Download failed"));
+          reject(new Error("Download failed"));
         }
       });
     });
@@ -983,6 +1008,49 @@ ipcMain.handle("cancel-download", () => {
       activeDownload.kill("SIGTERM");
     }
     activeDownload = null;
+
+    // Clean up any partial files yt-dlp wrote before being killed
+    const filesToDelete = [...activeDownloadFiles];
+    activeDownloadFiles = [];
+    const dirsToScan = new Set();
+    for (const filePath of filesToDelete) {
+      // Delete exact path + known suffixes
+      for (const p of [filePath, filePath + ".part", filePath + ".ytdl"]) {
+        try {
+          if (fs.existsSync(p)) {
+            fs.unlinkSync(p);
+            console.log("[cancel] deleted:", p);
+          }
+        } catch (e) {
+          console.warn("[cancel] could not delete:", p, e.message);
+        }
+      }
+      dirsToScan.add(path.dirname(filePath));
+    }
+
+    // Also delete any .part-Frag* fragment files in the same directories
+    for (const dir of dirsToScan) {
+      try {
+        const entries = fs.readdirSync(dir);
+        for (const entry of entries) {
+          if (entry.includes(".part-Frag")) {
+            const fragPath = path.join(dir, entry);
+            try {
+              fs.unlinkSync(fragPath);
+              console.log("[cancel] deleted fragment:", fragPath);
+            } catch (e) {
+              console.warn(
+                "[cancel] could not delete fragment:",
+                fragPath,
+                e.message,
+              );
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[cancel] could not scan dir:", dir, e.message);
+      }
+    }
   }
 });
 

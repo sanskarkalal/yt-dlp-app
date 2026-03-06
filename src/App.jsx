@@ -919,6 +919,7 @@ export default function App() {
         audioContainer: audioOnly ? audioContainer : null,
       });
 
+      if (result?.cancelled) return;
       setProgress(100);
       setDone(true);
       setStatus(
