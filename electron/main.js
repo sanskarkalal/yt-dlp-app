@@ -3,6 +3,9 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import { spawn, execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const treeKill = require("tree-kill");
 import https from "node:https";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
@@ -38,17 +41,19 @@ function getUniqueFilePath(filePath) {
   } while (fs.existsSync(candidate));
   return candidate;
 }
+
 function sanitizeFilename(name) {
   return name
-    .normalize("NFKD") // normalize unicode
-    .replace(/[\u0300-\u036f]/g, "") // strip combining diacritics
-    .replace(/[^\x20-\x7E]/g, "_") // replace non-ASCII with _
-    .replace(/[/\\?%*:|"<>]/g, "_") // replace illegal path chars
-    .replace(/\s+/g, "_") // all whitespace to underscores
-    .replace(/_+/g, "_") // collapse multiple underscores
-    .replace(/^_+|_+$/g, "") // trim leading/trailing underscores
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, "_")
+    .replace(/[/\\?%*:|"<>]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
     .trim();
 }
+
 function sanitizeOutputPath(filePath) {
   if (!filePath) return filePath;
   const normalized = path.normalize(filePath.trim());
@@ -59,7 +64,6 @@ function sanitizeOutputPath(filePath) {
   const newPath = path.join(dir, newName);
 
   try {
-    // Priority 1: fresh download exists at the original unicode/unsanitized path
     // Priority 1: fresh download exists at the original unicode/unsanitized path
     // Use readdirSync — fs.existsSync lies with emoji/unicode on macOS
     const dirFiles = fs.readdirSync(dir);
@@ -78,8 +82,6 @@ function sanitizeOutputPath(filePath) {
       return newPath;
     }
 
-    // Priority 3: scan dir for a match (Windows unicode edge case)
-    const files = fs.readdirSync(dir);
     // Priority 3: scan dir for a match (Windows unicode edge case)
     const actualFile = dirFiles.find((f) => {
       const fExt = path.extname(f);
@@ -108,21 +110,12 @@ function getBundledYtDlpPath() {
   return path.join(binDir, "linux", "yt-dlp");
 }
 
-/**
- * Path where an auto-updated yt-dlp binary is stored (writable even in
- * packaged apps, unlike the resources folder).
- */
 function getUpdatedYtDlpPath() {
   const dir = path.join(app.getPath("userData"), "bin");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, isWin ? "yt-dlp.exe" : "yt-dlp");
 }
 
-/**
- * Returns the best available yt-dlp path:
- * - prefers the auto-updated copy in userData (newer)
- * - falls back to the bundled binary
- */
 function getYtDlpPath() {
   const updated = getUpdatedYtDlpPath();
   if (fs.existsSync(updated)) return updated;
@@ -165,7 +158,6 @@ function writeUpdateState(state) {
   }
 }
 
-/** Get the version string from a yt-dlp binary. Returns null on failure. */
 function getYtDlpVersion(binaryPath) {
   try {
     const out = execFileSync(binaryPath, ["--version"], {
@@ -178,7 +170,6 @@ function getYtDlpVersion(binaryPath) {
   }
 }
 
-/** Fetch the latest yt-dlp release tag from GitHub. Returns null on failure. */
 function fetchLatestYtDlpVersion() {
   return new Promise((resolve) => {
     const options = {
@@ -206,7 +197,6 @@ function fetchLatestYtDlpVersion() {
   });
 }
 
-/** Download a file from a URL to a destination path. */
 function downloadFile(url, destPath) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destPath);
@@ -214,7 +204,6 @@ function downloadFile(url, destPath) {
       url,
       { headers: { "User-Agent": "seedhe-download-app" } },
       (res) => {
-        // Handle redirects
         if (
           res.statusCode >= 300 &&
           res.statusCode < 400 &&
@@ -250,10 +239,6 @@ function downloadFile(url, destPath) {
   });
 }
 
-/**
- * Main auto-update function. Runs silently on app startup.
- * Checks at most once per day.
- */
 async function checkAndUpdateYtDlp() {
   try {
     const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -293,7 +278,6 @@ async function checkAndUpdateYtDlp() {
       return;
     }
 
-    // Determine download URL
     let downloadUrl;
     if (isWin) {
       downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/download/${latestVersion}/yt-dlp.exe`;
@@ -309,12 +293,10 @@ async function checkAndUpdateYtDlp() {
     console.log(`[update] Downloading yt-dlp ${latestVersion}...`);
     await downloadFile(downloadUrl, tempPath);
 
-    // Make executable on mac/linux
     if (!isWin) {
       fs.chmodSync(tempPath, 0o755);
     }
 
-    // Verify the downloaded binary works before replacing
     const newVersion = getYtDlpVersion(tempPath);
     if (!newVersion) {
       fs.unlink(tempPath, () => {});
@@ -324,7 +306,6 @@ async function checkAndUpdateYtDlp() {
       return;
     }
 
-    // Atomic replace
     fs.renameSync(tempPath, destPath);
     console.log(
       `[update] yt-dlp updated successfully: ${currentVersion ?? "?"} → ${newVersion}`,
@@ -401,7 +382,61 @@ function getYtDlpEnv() {
 
 let activeDownload = null;
 let mainWindow = null;
+let cancelRequested = false;
 let activeDownloadFiles = [];
+let activeDownloadSavePath = null;
+
+// ---------------------------------------------------------------------------
+// Cleanup helper — called after process is confirmed dead
+// ---------------------------------------------------------------------------
+function cleanupPartialFiles(filesToDelete, fallbackDir) {
+  const dirsToScan = new Set();
+  if (fallbackDir) dirsToScan.add(fallbackDir);
+
+  for (const filePath of filesToDelete) {
+    for (const p of [filePath, filePath + ".part", filePath + ".ytdl"]) {
+      try {
+        if (fs.existsSync(p)) {
+          fs.unlinkSync(p);
+          console.log("[cancel] deleted:", p);
+        }
+      } catch (e) {
+        console.warn("[cancel] could not delete:", p, e.message);
+      }
+    }
+    dirsToScan.add(path.dirname(filePath));
+  }
+
+  for (const dir of dirsToScan) {
+    try {
+      const entries = fs.readdirSync(dir);
+      for (const entry of entries) {
+        if (
+          entry.includes(".part-Frag") ||
+          entry.endsWith(".part") ||
+          entry.endsWith(".ytdl")
+        ) {
+          const fragPath = path.join(dir, entry);
+          const tryDelete = (retriesLeft) => {
+            try {
+              fs.unlinkSync(fragPath);
+              console.log("[cancel] deleted:", entry);
+            } catch (e) {
+              if (e.code === "EBUSY" && retriesLeft > 0) {
+                setTimeout(() => tryDelete(retriesLeft - 1), 500);
+              } else {
+                console.warn("[cancel] could not delete:", entry, e.message);
+              }
+            }
+          };
+          tryDelete(5);
+        }
+      }
+    } catch (e) {
+      console.warn("[cancel] could not scan dir:", dir, e.message);
+    }
+  }
+}
 
 function hasValidCookies(cookiePath) {
   if (!fs.existsSync(cookiePath)) return false;
@@ -485,7 +520,6 @@ app.whenReady().then(() => {
   console.log("[bin] yt-dlp path:", getYtDlpPath());
   console.log("[bin] yt-dlp exists:", fs.existsSync(getYtDlpPath()));
 
-  // Fire-and-forget auto-update check (non-blocking)
   checkAndUpdateYtDlp();
 });
 
@@ -795,7 +829,6 @@ ipcMain.handle(
         const file = fs.createWriteStream(dest);
         client
           .get(url, (res) => {
-            // Follow redirects
             if (
               res.statusCode >= 300 &&
               res.statusCode < 400 &&
@@ -851,13 +884,7 @@ ipcMain.handle(
         const quality = audioQuality || "192";
         const trackSelector = audioTrackId || "bestaudio/best";
         const outFormat = audioContainer || "mp3";
-
-        // Pre-compute a unique output path so duplicates get (1), (2), etc.
         const baseName = `%(title)s [audio].%(ext)s`;
-        // We can't know the exact ext ahead of time, so let yt-dlp write to a
-        // temp template and capture the actual path from stdout. The (N) suffix
-        // only applies if a file with that exact name already exists — we pass
-        // the base template and rely on stdout capture + post-check below.
         args = [
           "-f",
           trackSelector,
@@ -900,6 +927,7 @@ ipcMain.handle(
 
       const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
       activeDownload = proc;
+      activeDownloadSavePath = savePath;
 
       let downloadPhase = 0;
       let outputFilePath = null;
@@ -907,17 +935,22 @@ ipcMain.handle(
       proc.stdout.on("data", (data) => {
         const line = data.toString();
         console.log(line);
+
         const alreadyMatch = line.match(
           /\[download\] (.+) has already been downloaded/,
         );
         if (alreadyMatch)
           outputFilePath = path.normalize(alreadyMatch[1].trim());
-        // Capture output file path from yt-dlp's own log lines
+
         const destMatch = line.match(/\[download\] Destination:\s+(.+)/);
         if (destMatch) {
           outputFilePath = path.normalize(destMatch[1].trim());
           if (!activeDownloadFiles.includes(outputFilePath))
             activeDownloadFiles.push(outputFilePath);
+          // pre-track .part variant — ffmpeg writes here before renaming
+          const partPath = outputFilePath + ".part";
+          if (!activeDownloadFiles.includes(partPath))
+            activeDownloadFiles.push(partPath);
         }
 
         const mergeMatch = line.match(/\[Merger\] Merging formats into "(.+)"/);
@@ -934,7 +967,6 @@ ipcMain.handle(
             activeDownloadFiles.push(outputFilePath);
         }
 
-        // Track download phase for multi-stream (video+audio separate)
         if (line.includes("[download] Destination:")) {
           downloadPhase = (downloadPhase || 0) + 1;
         }
@@ -947,10 +979,8 @@ ipcMain.handle(
           const pct = parseFloat(match[1]);
           let scaled;
           if (downloadPhase <= 1) {
-            // Single stream or first stream (video): 0–50%
             scaled = Math.round(pct * 0.5);
           } else {
-            // Second stream (audio): 50–95%
             scaled = Math.round(50 + pct * 0.45);
           }
           win.webContents.send("download-progress", scaled);
@@ -958,17 +988,27 @@ ipcMain.handle(
       });
 
       proc.stderr.on("data", (d) => console.error(d.toString()));
+
       proc.on("error", (err) => {
         activeDownload = null;
+        activeDownloadFiles = [];
+        activeDownloadSavePath = null;
+        cancelRequested = false;
         reject(new Error(`Failed to start yt-dlp: ${err.message}`));
       });
+
       proc.on("close", (code) => {
         activeDownload = null;
+        console.log(
+          "[download] proc closed, code:",
+          code,
+          "cancelRequested:",
+          cancelRequested,
+        );
         console.log("[download] final outputFilePath:", outputFilePath);
 
-        if (code === 0) {
-          // If yt-dlp wrote the file but we didn't capture the path (rare edge
-          // case), fall back to the most-recently-modified file in savePath.
+        if (code === 0 && !cancelRequested) {
+          // Success path
           if (!outputFilePath) {
             try {
               const files = fs
@@ -982,17 +1022,24 @@ ipcMain.handle(
                 outputFilePath = path.join(savePath, files[0].name);
             } catch {}
           }
-
-          // If a file already exists at the captured path, rename the existing
-          // one out of the way (yt-dlp may have silently overwritten it).
-          // More importantly: if the same video is downloaded again yt-dlp will
-          // write to the same path — we rename the *old* copy to (1), (2), etc.
-          // before returning so the caller always gets the freshest file.
+          activeDownloadFiles = [];
+          activeDownloadSavePath = null;
           outputFilePath = sanitizeOutputPath(outputFilePath);
           resolve({ filePath: outputFilePath });
-        } else if (code === null) {
+        } else if (cancelRequested || code === null) {
+          // Cancel path — process is fully dead, safe to delete files now
+          cancelRequested = false;
+          const filesToDelete = [...activeDownloadFiles];
+          activeDownloadFiles = [];
+          const savePathForCleanup = activeDownloadSavePath;
+          activeDownloadSavePath = null;
+          cleanupPartialFiles(filesToDelete, savePathForCleanup);
           resolve({ cancelled: true });
         } else {
+          // Error path
+          cancelRequested = false;
+          activeDownloadFiles = [];
+          activeDownloadSavePath = null;
           reject(new Error("Download failed"));
         }
       });
@@ -1000,57 +1047,23 @@ ipcMain.handle(
   },
 );
 
+// ---------------------------------------------------------------------------
+// IPC: Cancel download
+// ---------------------------------------------------------------------------
+
 ipcMain.handle("cancel-download", () => {
+  console.log("[cancel] handler called, activeDownload:", !!activeDownload);
   if (activeDownload) {
-    if (isWin) {
-      spawn("taskkill", ["/pid", activeDownload.pid, "/f", "/t"]);
-    } else {
-      activeDownload.kill("SIGTERM");
-    }
+    cancelRequested = true;
+    const pid = activeDownload.pid;
     activeDownload = null;
-
-    // Clean up any partial files yt-dlp wrote before being killed
-    const filesToDelete = [...activeDownloadFiles];
-    activeDownloadFiles = [];
-    const dirsToScan = new Set();
-    for (const filePath of filesToDelete) {
-      // Delete exact path + known suffixes
-      for (const p of [filePath, filePath + ".part", filePath + ".ytdl"]) {
-        try {
-          if (fs.existsSync(p)) {
-            fs.unlinkSync(p);
-            console.log("[cancel] deleted:", p);
-          }
-        } catch (e) {
-          console.warn("[cancel] could not delete:", p, e.message);
-        }
-      }
-      dirsToScan.add(path.dirname(filePath));
-    }
-
-    // Also delete any .part-Frag* fragment files in the same directories
-    for (const dir of dirsToScan) {
-      try {
-        const entries = fs.readdirSync(dir);
-        for (const entry of entries) {
-          if (entry.includes(".part-Frag")) {
-            const fragPath = path.join(dir, entry);
-            try {
-              fs.unlinkSync(fragPath);
-              console.log("[cancel] deleted fragment:", fragPath);
-            } catch (e) {
-              console.warn(
-                "[cancel] could not delete fragment:",
-                fragPath,
-                e.message,
-              );
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("[cancel] could not scan dir:", dir, e.message);
-      }
-    }
+    console.log("[cancel] killing pid:", pid);
+    // treeKill handles both macOS and Windows — kills entire process tree
+    treeKill(pid, "SIGKILL", (err) => {
+      if (err) console.warn("[cancel] treeKill error:", err.message);
+      else console.log("[cancel] process tree killed");
+    });
+    // Cleanup happens in proc.on("close") once the process is confirmed dead
   }
 });
 
@@ -1116,10 +1129,6 @@ ipcMain.handle("show-in-folder", (_, filePath) => {
 
     if (fs.existsSync(normalized)) {
       if (isWin) {
-        // shell.showItemInFolder is unreliable on Windows with spaces/special
-        // chars in the path — use explorer.exe /select directly instead.
-        // The path must be passed as a single argument with no space after the comma.
-        // /select, and the path must be ONE argument — no space between them
         try {
           const proc = spawn("explorer.exe", [`/select,${normalized}`], {
             detached: true,
@@ -1131,11 +1140,9 @@ ipcMain.handle("show-in-folder", (_, filePath) => {
           shell.openPath(path.dirname(normalized));
         }
       } else {
-        // macOS — shell.showItemInFolder works perfectly
         shell.showItemInFolder(normalized);
       }
     } else {
-      // File doesn't exist — open the containing folder as fallback
       const dir = path.dirname(normalized);
       shell.openPath(fs.existsSync(dir) ? dir : os.homedir());
     }

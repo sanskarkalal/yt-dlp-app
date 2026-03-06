@@ -719,7 +719,7 @@ export default function App() {
   const [audioContainer, setAudioContainer] = useState("mp3");
   // NEW — history only
   const [historyOpen, setHistoryOpen] = useState(false);
-
+  const [botDetected, setBotDetected] = useState(false);
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
 
@@ -961,12 +961,12 @@ export default function App() {
   };
 
   const cancelDownload = async () => {
-    await window.electronAPI.cancelDownload();
     setDownloading(false);
     setProgress(0);
     setSmoothProgress(0);
     progressRef.current = 0;
     setStatus("Download cancelled");
+    await window.electronAPI.cancelDownload();
   };
 
   const downloadThumbnail = async () => {
