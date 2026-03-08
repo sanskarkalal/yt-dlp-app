@@ -1,139 +1,422 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
+import * as Tabs from "@radix-ui/react-tabs";
+import * as Select from "@radix-ui/react-select";
+import * as ScrollArea from "@radix-ui/react-scroll-area";
+import {
+  Download,
+  X,
+  FolderOpen,
+  Clock,
+  CheckCircle2,
+  ChevronDown,
+  LogIn,
+  Image as ImageIcon,
+  Scissors,
+  Music,
+  Video,
+  Loader2,
+  Bot,
+  Lock,
+  Folder,
+  Trash2,
+  CheckSquare,
+  Square,
+  AlertCircle,
+  ClipboardPaste,
+} from "lucide-react";
+import { cn } from "./lib/utils";
 import iconPng from "./assets/icon.png";
 
-function formatDuration(secs) {
-  if (!secs) return "0:00";
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = Math.floor(secs % 60);
-  if (h > 0)
-    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const C = {
+  bg: "#09090f",
+  surface: "#0f0f1a",
+  surfaceHigh: "#151525",
+  border: "rgba(255,255,255,0.07)",
+  borderHover: "rgba(255,255,255,0.13)",
+  borderFocus: "rgba(139,92,246,0.5)",
+  textPrimary: "rgba(255,255,255,0.9)",
+  textMuted: "rgba(255,255,255,0.4)",
+  textFaint: "rgba(255,255,255,0.18)",
+  violetLight: "#a78bfa",
+  gradAccent: "linear-gradient(135deg, #7c3aed, #db2777)",
+  gradSuccess: "linear-gradient(135deg, #059669, #10b981)",
+  glowViolet: "0 0 24px rgba(124,58,237,0.3)",
+};
 
-// Returns the best default container for a given codec
-function defaultContainerForCodec(codec) {
-  if (codec === "VP9" || codec === "AV1") return "webm";
-  return "mp4"; // H264, H265, everything else
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function isValidTime(t) {
+  return /^\d{1,2}:\d{2}(:\d{2})?$/.test(t);
 }
-
 function timeToSecs(t) {
   if (!t) return null;
-  const parts = t.split(":").map(Number);
-  if (parts.some(isNaN)) return null;
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  const p = t.split(":").map(Number);
+  if (p.length === 2) return p[0] * 60 + p[1];
+  if (p.length === 3) return p[0] * 3600 + p[1] * 60 + p[2];
   return null;
 }
-
-function secsToTime(s) {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
+function formatDuration(s) {
+  if (!s) return "";
+  const h = Math.floor(s / 3600),
+    m = Math.floor((s % 3600) / 60),
+    sec = s % 60;
   if (h > 0)
     return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
-
-function isValidTime(t) {
-  return /^\d+:\d{2}(:\d{2})?$/.test(t.trim());
+function timeAgo(ts) {
+  const d = Date.now() - ts,
+    m = Math.floor(d / 60000),
+    h = Math.floor(d / 3600000),
+    day = Math.floor(d / 86400000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  if (h < 24) return `${h}h ago`;
+  return `${day}d ago`;
 }
 
-function formatDate(ts) {
-  const d = new Date(ts);
+// ─── Shared style helpers ─────────────────────────────────────────────────────
+const pill = (extra = {}) => ({
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  height: 40,
+  padding: "0 12px",
+  background: C.surface,
+  border: `1px solid ${C.border}`,
+  borderRadius: 12,
+  transition: "border-color 0.15s",
+  ...extra,
+});
+
+const inputBase = {
+  flex: 1,
+  background: "transparent",
+  border: "none",
+  outline: "none",
+  fontSize: 13,
+  color: C.textPrimary,
+  fontFamily: "inherit",
+};
+
+// ─── Primitives ───────────────────────────────────────────────────────────────
+function FieldLabel({ children }) {
   return (
-    d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }) +
-    " · " +
-    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    <span
+      style={{
+        fontSize: 10,
+        fontWeight: 700,
+        textTransform: "uppercase",
+        letterSpacing: "0.12em",
+        color: C.textFaint,
+      }}
+    >
+      {children}
+    </span>
   );
 }
 
-function RangeSlider({ min, max, startVal, endVal, onChange }) {
-  const trackRef = useRef(null);
-  const dragging = useRef(null);
-
-  const clamp = (v) => Math.max(min, Math.min(max, v));
-  const toPercent = (v) => ((v - min) / (max - min)) * 100;
-
-  const getVal = (e) => {
-    const rect = trackRef.current.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    return clamp(min + ratio * (max - min));
+function Badge({ children, color = "violet" }) {
+  const map = {
+    violet: ["rgba(139,92,246,0.12)", "rgba(139,92,246,0.25)", "#a78bfa"],
+    pink: ["rgba(236,72,153,0.12)", "rgba(236,72,153,0.25)", "#f472b6"],
+    amber: ["rgba(245,158,11,0.12)", "rgba(245,158,11,0.25)", "#fbbf24"],
+    green: ["rgba(16,185,129,0.12)", "rgba(16,185,129,0.25)", "#34d399"],
+    ghost: ["rgba(255,255,255,0.05)", "rgba(255,255,255,0.09)", C.textMuted],
   };
+  const [bg, border, text] = map[color] || map.ghost;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "2px 8px",
+        borderRadius: 6,
+        fontSize: 10,
+        fontWeight: 600,
+        background: bg,
+        border: `1px solid ${border}`,
+        color: text,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
 
-  const onMouseDown = (thumb) => (e) => {
+function IconBtn({ onClick, disabled, title, children }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 32,
+        height: 32,
+        borderRadius: 10,
+        background: hov ? C.surfaceHigh : "transparent",
+        border: "1px solid transparent",
+        color: hov ? C.textPrimary : C.textMuted,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.4 : 1,
+        transition: "all 0.15s",
+      }}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Btn({
+  children,
+  onClick,
+  disabled,
+  variant = "primary",
+  fullWidth,
+  style: sx,
+}) {
+  const [hov, setHov] = useState(false);
+  const base = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    height: 40,
+    padding: "0 18px",
+    borderRadius: 12,
+    fontSize: 13,
+    fontWeight: 600,
+    width: fullWidth ? "100%" : undefined,
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.4 : 1,
+    transition: "all 0.15s",
+    border: "none",
+  };
+  const vs = {
+    primary: {
+      background: C.gradAccent,
+      color: "#fff",
+      boxShadow:
+        hov && !disabled ? "0 0 28px rgba(124,58,237,0.45)" : C.glowViolet,
+    },
+    success: { background: C.gradSuccess, color: "#fff", cursor: "default" },
+    danger: {
+      background: "linear-gradient(135deg,#dc2626,#b91c1c)",
+      color: "#fff",
+      boxShadow: hov ? "0 0 20px rgba(220,38,38,0.4)" : "none",
+    },
+    ghost: {
+      background: hov ? C.surfaceHigh : C.surface,
+      color: C.textMuted,
+      border: `1px solid ${C.border}`,
+    },
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{ ...base, ...vs[variant], ...sx }}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SelectField({ value, onValueChange, options, placeholder, disabled }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <Select.Root
+      value={value != null ? String(value) : ""}
+      onValueChange={onValueChange}
+      disabled={disabled}
+    >
+      <Select.Trigger
+        style={{
+          ...pill(),
+          width: "100%",
+          cursor: "pointer",
+          justifyContent: "space-between",
+          borderColor: hov ? C.borderHover : C.border,
+        }}
+        onMouseEnter={() => setHov(true)}
+        onMouseLeave={() => setHov(false)}
+      >
+        <Select.Value
+          placeholder={
+            <span style={{ color: C.textFaint }}>{placeholder}</span>
+          }
+        />
+        <Select.Icon style={{ color: C.textFaint, display: "flex" }}>
+          <ChevronDown size={14} />
+        </Select.Icon>
+      </Select.Trigger>
+      <Select.Portal>
+        <Select.Content
+          position="popper"
+          sideOffset={4}
+          style={{
+            zIndex: 999,
+            minWidth: "var(--radix-select-trigger-width)",
+            background: "#13132a",
+            border: `1px solid ${C.border}`,
+            borderRadius: 12,
+            boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
+            overflow: "hidden",
+          }}
+        >
+          <Select.Viewport
+            style={{ padding: 4, maxHeight: 180, overflowY: "auto" }}
+          >
+            {options.map((opt) => (
+              <SelectItem key={String(opt.value)} value={String(opt.value)}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </Select.Viewport>
+        </Select.Content>
+      </Select.Portal>
+    </Select.Root>
+  );
+}
+
+function SelectItem({ value, children }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <Select.Item
+      value={value}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        padding: "8px 12px",
+        borderRadius: 8,
+        fontSize: 13,
+        color: hov ? C.textPrimary : C.textMuted,
+        background: hov ? C.surfaceHigh : "transparent",
+        cursor: "pointer",
+        outline: "none",
+        transition: "all 0.1s",
+        userSelect: "none",
+      }}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+    >
+      <Select.ItemText>{children}</Select.ItemText>
+    </Select.Item>
+  );
+}
+
+// ─── Range Slider ─────────────────────────────────────────────────────────────
+function RangeSlider({
+  duration,
+  startSecs,
+  endSecs,
+  onStartChange,
+  onEndChange,
+}) {
+  const trackRef = useRef(null);
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const sPct = duration > 0 ? (startSecs / duration) * 100 : 0;
+  const ePct = duration > 0 ? (endSecs / duration) * 100 : 100;
+  const toTime = (s) => {
+    const h = Math.floor(s / 3600),
+      m = Math.floor((s % 3600) / 60),
+      sec = Math.floor(s % 60);
+    if (h > 0)
+      return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+    return `${m}:${String(sec).padStart(2, "0")}`;
+  };
+  const drag = (which) => (e) => {
     e.preventDefault();
-    dragging.current = thumb;
-    const move = (ev) => {
-      const v = getVal(ev);
-      if (dragging.current === "start") {
-        onChange(Math.min(v, endVal - 1), endVal);
-      } else {
-        onChange(startVal, Math.max(v, startVal + 1));
-      }
+    const move = (me) => {
+      if (!trackRef.current) return;
+      const r = trackRef.current.getBoundingClientRect();
+      const pct = clamp((me.clientX - r.left) / r.width, 0, 1);
+      const sec = Math.round(pct * duration);
+      if (which === "start") onStartChange(toTime(clamp(sec, 0, endSecs - 1)));
+      else onEndChange(toTime(clamp(sec, startSecs + 1, duration)));
     };
     const up = () => {
-      dragging.current = null;
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
   };
-
-  const startPct = toPercent(startVal);
-  const endPct = toPercent(endVal);
-
   return (
     <div
       ref={trackRef}
-      className="relative h-6 flex items-center cursor-pointer select-none"
+      style={{
+        position: "relative",
+        height: 20,
+        display: "flex",
+        alignItems: "center",
+        cursor: "pointer",
+        userSelect: "none",
+      }}
     >
-      {/* Track background */}
-      <div className="absolute inset-x-0 h-1 rounded-full bg-white/10" />
-      {/* Active range */}
       <div
-        className="absolute h-1 rounded-full"
         style={{
-          left: `${startPct}%`,
-          width: `${endPct - startPct}%`,
-          background: "linear-gradient(90deg, #7c3aed, #db2777)",
+          width: "100%",
+          height: 3,
+          background: "rgba(255,255,255,0.06)",
+          borderRadius: 99,
         }}
       />
-      {/* Start thumb */}
       <div
-        onMouseDown={onMouseDown("start")}
-        className="absolute w-4 h-4 rounded-full border-2 border-violet-400 bg-[#0a0a0f] cursor-grab active:cursor-grabbing shadow-lg"
-        style={{ left: `calc(${startPct}% - 8px)`, zIndex: 2 }}
+        style={{
+          position: "absolute",
+          height: 3,
+          borderRadius: 99,
+          background: "linear-gradient(90deg,#7c3aed,#a855f7)",
+          left: `${sPct}%`,
+          right: `${100 - ePct}%`,
+        }}
       />
-      {/* End thumb */}
-      <div
-        onMouseDown={onMouseDown("end")}
-        className="absolute w-4 h-4 rounded-full border-2 border-pink-400 bg-[#0a0a0f] cursor-grab active:cursor-grabbing shadow-lg"
-        style={{ left: `calc(${endPct}% - 8px)`, zIndex: 2 }}
-      />
+      {[
+        { w: "start", p: sPct },
+        { w: "end", p: ePct },
+      ].map(({ w, p }) => (
+        <div
+          key={w}
+          onMouseDown={drag(w)}
+          style={{
+            position: "absolute",
+            width: 14,
+            height: 14,
+            borderRadius: "50%",
+            background: "#a78bfa",
+            border: `2px solid ${C.bg}`,
+            left: `calc(${p}% - 7px)`,
+            zIndex: 2,
+            cursor: "grab",
+            boxShadow: "0 0 8px rgba(139,92,246,0.6)",
+          }}
+        />
+      ))}
     </div>
   );
 }
 
-// ─── History Drawer ────────────────────────────────────────────────────────────
+// ─── History Drawer ───────────────────────────────────────────────────────────
 function HistoryDrawer({ open, onClose }) {
   const [history, setHistory] = useState([]);
   const [clearing, setClearing] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [showConfirm, setShowConfirm] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [botDetected, setBotDetected] = useState(false);
+
   useEffect(() => {
     if (open) window.electronAPI.getHistory().then(setHistory);
-    else setSelectedIds(new Set()); // clear selection when drawer closes
+    else setSelectedIds(new Set());
   }, [open]);
-
   const handleClearAll = async () => {
     setClearing(true);
     await window.electronAPI.clearHistory();
@@ -141,556 +424,366 @@ function HistoryDrawer({ open, onClose }) {
     setSelectedIds(new Set());
     setClearing(false);
   };
-
   const handleDeleteEntry = async (entry) => {
     setDeletingId(entry.id);
     if (entry.filePath) await window.electronAPI.deleteFile(entry.filePath);
     await window.electronAPI.deleteHistoryEntry(entry.id);
-    setHistory((prev) => prev.filter((e) => e.id !== entry.id));
-    setSelectedIds((prev) => {
-      const n = new Set(prev);
+    setHistory((p) => p.filter((e) => e.id !== entry.id));
+    setSelectedIds((p) => {
+      const n = new Set(p);
       n.delete(entry.id);
       return n;
     });
     setDeletingId(null);
   };
-
-  const toggleSelect = (id) => {
-    setSelectedIds((prev) => {
-      const n = new Set(prev);
+  const toggleSelect = (id) =>
+    setSelectedIds((p) => {
+      const n = new Set(p);
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === history.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(history.map((e) => e.id)));
-    }
-  };
-
-  const handleBulkDelete = async () => {
+  const toggleAll = () =>
+    selectedIds.size === history.length
+      ? setSelectedIds(new Set())
+      : setSelectedIds(new Set(history.map((e) => e.id)));
+  const bulkDelete = async () => {
     setBulkDeleting(true);
-    const toDelete = history.filter((e) => selectedIds.has(e.id));
-    for (const entry of toDelete) {
-      if (entry.filePath) await window.electronAPI.deleteFile(entry.filePath);
-      await window.electronAPI.deleteHistoryEntry(entry.id);
+    for (const e of history.filter((e) => selectedIds.has(e.id))) {
+      if (e.filePath) await window.electronAPI.deleteFile(e.filePath);
+      await window.electronAPI.deleteHistoryEntry(e.id);
     }
-    setHistory((prev) => prev.filter((e) => !selectedIds.has(e.id)));
+    setHistory((p) => p.filter((e) => !selectedIds.has(e.id)));
     setSelectedIds(new Set());
-    setShowConfirm(false);
     setBulkDeleting(false);
   };
-
-  const typeBadge = (type) => {
-    const map = {
-      video: {
-        label: "Video",
-        bg: "rgba(124,58,237,0.15)",
-        border: "rgba(124,58,237,0.35)",
-        color: "#a78bfa",
-      },
-      audio: {
-        label: "Audio",
-        bg: "rgba(236,72,153,0.15)",
-        border: "rgba(236,72,153,0.35)",
-        color: "#f472b6",
-      },
-      thumbnail: {
-        label: "Thumb",
-        bg: "rgba(245,158,11,0.15)",
-        border: "rgba(245,158,11,0.35)",
-        color: "#fbbf24",
-      },
-      clip: {
-        label: "Clip",
-        bg: "rgba(16,185,129,0.15)",
-        border: "rgba(16,185,129,0.35)",
-        color: "#34d399",
-      },
-    };
-    const s = map[type] || map.video;
-    return (
-      <span
-        className="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
-        style={{ background: s.bg, borderColor: s.border, color: s.color }}
-      >
-        {s.label}
-      </span>
-    );
+  const typeMeta = {
+    video: { label: "Video", color: "violet", Icon: Video },
+    audio: { label: "Audio", color: "pink", Icon: Music },
+    thumbnail: { label: "Thumb", color: "amber", Icon: ImageIcon },
+    clip: { label: "Clip", color: "green", Icon: Scissors },
   };
-
-  const allSelected = history.length > 0 && selectedIds.size === history.length;
-  const someSelected = selectedIds.size > 0;
+  const allSel = history.length > 0 && selectedIds.size === history.length;
 
   return (
     <>
-      {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40 transition-opacity duration-300"
+        onClick={onClose}
         style={{
-          background: "rgba(0,0,0,0.5)",
+          position: "fixed",
+          inset: 0,
+          zIndex: 40,
+          background: "rgba(0,0,0,0.6)",
+          backdropFilter: "blur(4px)",
           opacity: open ? 1 : 0,
           pointerEvents: open ? "auto" : "none",
+          transition: "opacity 0.25s",
         }}
-        onClick={onClose}
       />
-
-      {/* Drawer */}
       <div
-        className="fixed top-0 right-0 h-full z-50 flex flex-col"
         style={{
-          width: "440px",
-          background: "linear-gradient(180deg, #0f0f1a 0%, #0a0a0f 100%)",
-          borderLeft: "1px solid rgba(255,255,255,0.08)",
+          position: "fixed",
+          top: 0,
+          right: 0,
+          height: "100%",
+          zIndex: 50,
+          width: 420,
+          display: "flex",
+          flexDirection: "column",
+          background: "linear-gradient(180deg,#0d0d1f 0%,#09090f 100%)",
+          borderLeft: `1px solid ${C.border}`,
           transform: open ? "translateX(0)" : "translateX(100%)",
-          transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-          boxShadow: open ? "-20px 0 60px rgba(0,0,0,0.6)" : "none",
+          transition: "transform 0.28s cubic-bezier(0.4,0,0.2,1)",
+          boxShadow: open ? "-24px 0 64px rgba(0,0,0,0.5)" : "none",
         }}
       >
-        {/* Drawer Header */}
+        {/* Header */}
         <div
-          className="flex items-center justify-between px-5 flex-shrink-0"
           style={{
-            borderBottom: "1px solid rgba(255,255,255,0.06)",
-            paddingTop: "52px",
-            paddingBottom: "14px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "52px 20px 14px",
+            borderBottom: `1px solid ${C.border}`,
           }}
         >
-          <div className="flex items-center gap-2">
-            <svg
-              className="w-4 h-4 text-white/40"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Clock size={15} style={{ color: C.textFaint }} />
+            <span
+              style={{ fontSize: 13, fontWeight: 600, color: C.textPrimary }}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <span className="text-sm font-semibold text-white/70">History</span>
+              History
+            </span>
             {history.length > 0 && (
               <span
-                className="text-[10px] px-1.5 py-0.5 rounded-full font-mono"
                 style={{
-                  background: "rgba(255,255,255,0.08)",
-                  color: "rgba(255,255,255,0.3)",
+                  fontSize: 10,
+                  fontWeight: 600,
+                  padding: "2px 6px",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.05)",
+                  color: C.textFaint,
                 }}
               >
                 {history.length}
               </span>
             )}
           </div>
-          <div className="flex items-center gap-0.5">
-            {/* Select all toggle — only when history exists */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             {history.length > 0 && (
               <button
-                onClick={toggleSelectAll}
-                className="text-[8px] font-medium px-1.5 py-0.8 rounded-lg transition-colors"
+                onClick={toggleAll}
                 style={{
-                  background: allSelected
-                    ? "rgba(124,58,237,0.2)"
-                    : "rgba(255,255,255,0.05)",
-                  border: `1px solid ${allSelected ? "rgba(124,58,237,0.4)" : "rgba(255,255,255,0.1)"}`,
-                  color: allSelected ? "#a78bfa" : "rgba(255,255,255,0.4)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  padding: "4px 8px",
+                  borderRadius: 8,
+                  background: allSel
+                    ? "rgba(124,58,237,0.15)"
+                    : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${allSel ? "rgba(124,58,237,0.3)" : C.border}`,
+                  color: allSel ? C.violetLight : C.textMuted,
+                  cursor: "pointer",
                 }}
               >
-                {allSelected ? "Deselect all" : "Select all"}
+                {allSel ? <CheckSquare size={12} /> : <Square size={12} />}
+                {allSel ? "Deselect all" : "Select all"}
               </button>
             )}
-            {/* Clear all — only when nothing is selected */}
-            {history.length > 0 && !someSelected && (
+            {selectedIds.size > 0 ? (
               <button
-                onClick={handleClearAll}
-                disabled={clearing}
-                title="Clear all history"
-                className="w-9 h-9 rounded-xl flex items-center justify-center text-lg transition-all duration-200 disabled:opacity-40"
+                onClick={bulkDelete}
+                disabled={bulkDeleting}
                 style={{
-                  background: "rgba(220,38,38,0.12)",
-                  border: "1px solid rgba(220,38,38,0.35)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(220,38,38,0.22)";
-                  e.currentTarget.style.transform = "translateY(-1px)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(220,38,38,0.12)";
-                  e.currentTarget.style.transform = "translateY(0px)";
-                }}
-              >
-                {clearing ? "⏳" : "🧹"}
-              </button>
-            )}
-            {/* Delete selected button — only when items selected */}
-            {someSelected && (
-              <button
-                onClick={() => setShowConfirm(true)}
-                className="flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-xl transition-all duration-200"
-                style={{
-                  background:
-                    "linear-gradient(135deg, rgba(220,38,38,0.25), rgba(185,28,28,0.25))",
-                  border: "1px solid rgba(220,38,38,0.45)",
-                  color: "#f87171",
-                  boxShadow: "0 0 12px rgba(220,38,38,0.2)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background =
-                    "linear-gradient(135deg, rgba(220,38,38,0.4), rgba(185,28,28,0.4))";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background =
-                    "linear-gradient(135deg, rgba(220,38,38,0.25), rgba(185,28,28,0.25))";
-                }}
-              >
-                <svg
-                  className="w-3.5 h-3.5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                  />
-                </svg>
-                Delete {selectedIds.size}
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              title="Close"
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-lg transition-all duration-200"
-              style={{
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.12)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(255,255,255,0.12)";
-                e.currentTarget.style.transform = "translateY(-1px)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "rgba(255,255,255,0.06)";
-                e.currentTarget.style.transform = "translateY(0px)";
-              }}
-            >
-              ❌
-            </button>
-          </div>
-        </div>
-
-        {/* List */}
-        <div className="flex-1 overflow-y-auto scrollbar-hide px-4 py-3 space-y-3">
-          {history.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-white/20 pb-16">
-              <svg
-                className="w-10 h-10"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <p className="text-sm">No downloads yet</p>
-            </div>
-          ) : (
-            history.map((entry) => {
-              const isSelected = selectedIds.has(entry.id);
-              return (
-                <div
-                  key={entry.id}
-                  className="rounded-xl overflow-hidden"
-                  style={{
-                    background: isSelected
-                      ? "rgba(124,58,237,0.1)"
-                      : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${isSelected ? "rgba(124,58,237,0.35)" : "rgba(255,255,255,0.07)"}`,
-                    transition: "background 0.15s, border-color 0.15s",
-                  }}
-                >
-                  {/* Card top */}
-                  <div className="flex gap-3 p-3">
-                    {/* Checkbox */}
-                    <div
-                      onClick={() => toggleSelect(entry.id)}
-                      className="flex-shrink-0 self-center cursor-pointer"
-                      style={{ marginLeft: "-2px" }}
-                    >
-                      <div
-                        className="w-4 h-4 rounded flex items-center justify-center transition-all duration-150"
-                        style={{
-                          background: isSelected
-                            ? "linear-gradient(135deg, #7c3aed, #db2777)"
-                            : "rgba(255,255,255,0.07)",
-                          border: `1.5px solid ${isSelected ? "transparent" : "rgba(255,255,255,0.2)"}`,
-                        }}
-                      >
-                        {isSelected && (
-                          <svg
-                            className="w-2.5 h-2.5 text-white"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={3}
-                              d="M5 13l4 4L19 7"
-                            />
-                          </svg>
-                        )}
-                      </div>
-                    </div>
-
-                    {entry.thumbnail ? (
-                      <img
-                        src={entry.thumbnail}
-                        alt=""
-                        className="w-20 h-12 object-cover rounded-lg flex-shrink-0"
-                        style={{ background: "rgba(255,255,255,0.05)" }}
-                        onError={(e) => {
-                          e.target.style.display = "none";
-                        }}
-                      />
-                    ) : (
-                      <div
-                        className="w-20 h-12 rounded-lg flex-shrink-0 flex items-center justify-center"
-                        style={{ background: "rgba(255,255,255,0.05)" }}
-                      >
-                        <svg
-                          className="w-5 h-5 text-white/20"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                          />
-                        </svg>
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0 flex flex-col justify-between">
-                      <p className="text-xs font-medium text-white/80 line-clamp-2 leading-snug">
-                        {entry.title}
-                      </p>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        {typeBadge(entry.type)}
-                        {entry.quality && (
-                          <span className="text-[10px] text-white/25 font-mono">
-                            {entry.quality}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card bottom: date + actions */}
-                  <div
-                    className="flex items-center justify-between px-3 py-2 gap-2"
-                    style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
-                  >
-                    <span className="text-[10px] text-white/25 font-mono truncate">
-                      {formatDate(entry.id)}
-                    </span>
-                    <button
-                      onClick={() =>
-                        window.electronAPI.showInFolder(entry.filePath)
-                      }
-                      title="Show in Finder / Explorer"
-                      className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all duration-150"
-                      style={{
-                        background: "rgba(124,58,237,0.12)",
-                        border: "1px solid rgba(124,58,237,0.25)",
-                        color: "#a78bfa",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background =
-                          "rgba(124,58,237,0.25)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background =
-                          "rgba(124,58,237,0.12)";
-                      }}
-                    >
-                      <svg
-                        className="w-3 h-3"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                        />
-                      </svg>
-                      Show
-                    </button>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      {/* Confirmation Dialog */}
-      {showConfirm && (
-        <div
-          className="fixed inset-0 z-60 flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.7)" }}
-        >
-          <div
-            className="flex flex-col gap-4 p-6 rounded-2xl"
-            style={{
-              width: "320px",
-              background: "linear-gradient(180deg, #16162a 0%, #0f0f1a 100%)",
-              border: "1px solid rgba(255,255,255,0.12)",
-              boxShadow: "0 24px 64px rgba(0,0,0,0.8)",
-            }}
-          >
-            {/* Icon + title */}
-            <div className="flex items-center gap-3">
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: "4px 10px",
+                  borderRadius: 8,
                   background: "rgba(220,38,38,0.15)",
                   border: "1px solid rgba(220,38,38,0.3)",
-                }}
-              >
-                <svg
-                  className="w-5 h-5"
-                  style={{ color: "#f87171" }}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                  />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-white/90">
-                  Delete {selectedIds.size} file
-                  {selectedIds.size > 1 ? "s" : ""}?
-                </p>
-                <p className="text-[11px] text-white/40 mt-0.5">
-                  Files will be moved to trash
-                </p>
-              </div>
-            </div>
-
-            {/* File list preview (max 4) */}
-            <div
-              className="rounded-xl px-3 py-2 space-y-1.5"
-              style={{
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.07)",
-              }}
-            >
-              {history
-                .filter((e) => selectedIds.has(e.id))
-                .slice(0, 4)
-                .map((e) => (
-                  <p key={e.id} className="text-[11px] text-white/50 truncate">
-                    · {e.title}
-                  </p>
-                ))}
-              {selectedIds.size > 4 && (
-                <p className="text-[11px] text-white/30">
-                  · and {selectedIds.size - 4} more...
-                </p>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowConfirm(false)}
-                disabled={bulkDeleting}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-40"
-                style={{
-                  background: "rgba(255,255,255,0.07)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  color: "rgba(255,255,255,0.6)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255,255,255,0.12)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255,255,255,0.07)";
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleBulkDelete}
-                disabled={bulkDeleting}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-60 flex items-center justify-center gap-2"
-                style={{
-                  background: "linear-gradient(135deg, #dc2626, #b91c1c)",
-                  boxShadow: bulkDeleting
-                    ? "none"
-                    : "0 0 20px rgba(220,38,38,0.4)",
-                  color: "white",
+                  color: "#f87171",
+                  cursor: "pointer",
                 }}
               >
                 {bulkDeleting ? (
-                  <>
-                    <svg
-                      className="animate-spin w-4 h-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8v8z"
-                      />
-                    </svg>
-                    Deleting...
-                  </>
+                  <Loader2 size={12} className="animate-spin" />
                 ) : (
-                  "Delete"
-                )}
+                  <Trash2 size={12} />
+                )}{" "}
+                Delete ({selectedIds.size})
               </button>
-            </div>
+            ) : history.length > 0 ? (
+              <IconBtn
+                onClick={handleClearAll}
+                disabled={clearing}
+                title="Clear all"
+              >
+                {clearing ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <Trash2 size={15} />
+                )}
+              </IconBtn>
+            ) : null}
+            <IconBtn onClick={onClose}>
+              <X size={15} />
+            </IconBtn>
           </div>
         </div>
-      )}
+        {/* List */}
+        <ScrollArea.Root style={{ flex: 1, overflow: "hidden" }}>
+          <ScrollArea.Viewport style={{ height: "100%", width: "100%" }}>
+            {history.length === 0 ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: 240,
+                  gap: 10,
+                  color: C.textFaint,
+                }}
+              >
+                <Clock size={28} strokeWidth={1.5} />
+                <span style={{ fontSize: 13 }}>No downloads yet</span>
+              </div>
+            ) : (
+              <div
+                style={{
+                  padding: 12,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                }}
+              >
+                {history.map((entry) => {
+                  const meta = typeMeta[entry.type] || typeMeta.video,
+                    isSel = selectedIds.has(entry.id);
+                  return (
+                    <div
+                      key={entry.id}
+                      onClick={() => toggleSelect(entry.id)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: 10,
+                        borderRadius: 12,
+                        cursor: "pointer",
+                        background: isSel
+                          ? "rgba(124,58,237,0.1)"
+                          : "rgba(255,255,255,0.02)",
+                        border: `1px solid ${isSel ? "rgba(124,58,237,0.25)" : C.border}`,
+                        transition: "all 0.15s",
+                      }}
+                      className="history-entry"
+                    >
+                      <div
+                        style={{
+                          width: 52,
+                          height: 36,
+                          borderRadius: 8,
+                          overflow: "hidden",
+                          background: C.surfaceHigh,
+                          flexShrink: 0,
+                          position: "relative",
+                        }}
+                      >
+                        {entry.thumbnail ? (
+                          <img
+                            src={entry.thumbnail}
+                            alt=""
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              color: C.textFaint,
+                            }}
+                          >
+                            <meta.Icon size={14} />
+                          </div>
+                        )}
+                        {isSel && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              background: "rgba(124,58,237,0.35)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <CheckCircle2
+                              size={14}
+                              style={{ color: "#a78bfa" }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: C.textPrimary,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            margin: 0,
+                          }}
+                        >
+                          {entry.title}
+                        </p>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            marginTop: 4,
+                          }}
+                        >
+                          <Badge color={meta.color}>{meta.label}</Badge>
+                          {entry.quality && (
+                            <span style={{ fontSize: 10, color: C.textFaint }}>
+                              {entry.quality}
+                            </span>
+                          )}
+                          <span
+                            style={{
+                              fontSize: 10,
+                              color: "rgba(255,255,255,0.1)",
+                              marginLeft: "auto",
+                            }}
+                          >
+                            {timeAgo(entry.id)}
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        className="entry-actions"
+                        style={{ display: "flex", gap: 2 }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {entry.filePath && (
+                          <IconBtn
+                            title="Show in folder"
+                            onClick={() =>
+                              window.electronAPI.showInFolder(entry.filePath)
+                            }
+                          >
+                            <Folder size={13} />
+                          </IconBtn>
+                        )}
+                        <IconBtn
+                          title="Delete"
+                          disabled={deletingId === entry.id}
+                          onClick={() => handleDeleteEntry(entry)}
+                        >
+                          {deletingId === entry.id ? (
+                            <Loader2 size={13} className="animate-spin" />
+                          ) : (
+                            <X size={13} />
+                          )}
+                        </IconBtn>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </ScrollArea.Viewport>
+          <ScrollArea.Scrollbar
+            orientation="vertical"
+            style={{ width: 6, padding: 2 }}
+          >
+            <ScrollArea.Thumb
+              style={{ background: "rgba(255,255,255,0.1)", borderRadius: 99 }}
+            />
+          </ScrollArea.Scrollbar>
+        </ScrollArea.Root>
+      </div>
     </>
   );
 }
 
-// ─── Main App ──────────────────────────────────────────────────────────────────
+// ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [url, setUrl] = useState("");
   const [videoInfo, setVideoInfo] = useState(null);
@@ -717,7 +810,6 @@ export default function App() {
   const [audioQuality, setAudioQuality] = useState("192");
   const [audioTrackId, setAudioTrackId] = useState("bestaudio/best");
   const [audioContainer, setAudioContainer] = useState("mp3");
-  // NEW — history only
   const [historyOpen, setHistoryOpen] = useState(false);
   const [botDetected, setBotDetected] = useState(false);
   const progressRef = useRef(0);
@@ -727,97 +819,72 @@ export default function App() {
   const sliderStart = timeToSecs(clipStart) ?? 0;
   const sliderEnd = timeToSecs(clipEnd) ?? duration;
 
-  const handleSliderChange = useCallback((newStart, newEnd) => {
-    setClipStart(secsToTime(newStart));
-    setClipEnd(secsToTime(newEnd));
-    setDone(false);
-  }, []);
-
   useEffect(() => {
-    window.electronAPI.getDownloadsPath().then(setSavePath);
+    progressRef.current = progress;
+  }, [progress]);
+  useEffect(() => {
+    const animate = () => {
+      setSmoothProgress((prev) => {
+        const d = progressRef.current - prev;
+        return Math.abs(d) < 0.1 ? progressRef.current : prev + d * 0.12;
+      });
+      animFrameRef.current = requestAnimationFrame(animate);
+    };
+    animFrameRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animFrameRef.current);
+  }, []);
+  useEffect(() => {
     window.electronAPI.getCookiesStatus().then(setCookiesOk);
+    window.electronAPI.getDownloadsPath().then(setSavePath);
     window.electronAPI.onCookiesStatus((ok) => setCookiesOk(ok));
   }, []);
 
-  useEffect(() => {
-    const target = progress;
-    const animate = () => {
-      progressRef.current += (target - progressRef.current) * 0.15;
-      setSmoothProgress(parseFloat(progressRef.current.toFixed(2)));
-      if (Math.abs(progressRef.current - target) > 0.1) {
-        animFrameRef.current = requestAnimationFrame(animate);
-      } else {
-        progressRef.current = target;
-        setSmoothProgress(target);
-      }
-    };
-    cancelAnimationFrame(animFrameRef.current);
-    animFrameRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animFrameRef.current);
-  }, [progress]);
-
-  const fetchInfo = async (urlToFetch = url) => {
-    if (!urlToFetch.trim()) return;
+  const fetchInfo = async (u) => {
+    if (!u) return;
     setLoading(true);
     setVideoInfo(null);
+    setStatus("");
     setDone(false);
-    setThumbDone(false);
-    setProgress(0);
-    setSmoothProgress(0);
-    progressRef.current = 0;
-    setShowLoginPrompt(false);
     setClipStart("");
     setClipEnd("");
-    setAudioTrackId("bestaudio/best");
+    setBotDetected(false);
+    setShowLoginPrompt(false);
     try {
-      const info = await window.electronAPI.getVideoInfo(urlToFetch);
-      if (info?.ageRestricted) {
-        setPendingUrl(urlToFetch);
+      const info = await window.electronAPI.getVideoInfo(u);
+      if (info.ageRestricted) {
+        setPendingUrl(u);
         setShowLoginPrompt(true);
-        setStatus("");
         return;
       }
-      if (info?.botDetected) {
-        setPendingUrl(urlToFetch);
+      if (info.botDetected) {
         setBotDetected(true);
-        setShowLoginPrompt(true);
-        setStatus("");
+        setPendingUrl(u);
         return;
       }
       setVideoInfo(info);
       if (info.rawFormats?.length > 0) {
-        const heights = [...new Set(info.rawFormats.map((f) => f.height))].sort(
-          (a, b) => b - a,
-        );
-        const firstHeight = heights[0];
-        setSelectedHeight(firstHeight);
-        const codecsAtHeight = [
+        const h = info.rawFormats[0].height;
+        const codecs = [
           ...new Set(
-            info.rawFormats
-              .filter((f) => f.height === firstHeight)
-              .map((f) => f.codec),
+            info.rawFormats.filter((f) => f.height === h).map((f) => f.codec),
           ),
         ];
-        setSelectedCodec(codecsAtHeight[0] || null);
-        const bitratesAtHeightCodec = info.rawFormats
-          .filter(
-            (f) => f.height === firstHeight && f.codec === codecsAtHeight[0],
-          )
+        setSelectedHeight(h);
+        setSelectedCodec(codecs[0]);
+        const brs = info.rawFormats
+          .filter((f) => f.height === h && f.codec === codecs[0])
           .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-        setSelectedBitrate(bitratesAtHeightCodec[0]?.bitrate ?? null);
-        const firstFormat = info.rawFormats.find(
-          (f) => f.height === firstHeight && f.codec === codecsAtHeight[0],
+        setSelectedBitrate(brs[0]?.bitrate ?? null);
+        setSelectedContainer(
+          info.rawFormats.find((f) => f.height === h && f.codec === codecs[0])
+            ?.ext || "mp4",
         );
-        setSelectedContainer(firstFormat?.ext || "mp4");
       }
     } catch (err) {
       if (err?.message?.includes("AGE_RESTRICTED")) {
-        setPendingUrl(urlToFetch);
+        setPendingUrl(u);
         setShowLoginPrompt(true);
-        setStatus("");
-      } else {
-        setStatus("Error: " + err.message);
-      }
+      } else setStatus("Error: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -829,15 +896,12 @@ export default function App() {
     setBotDetected(false);
     setStatus("Waiting for YouTube sign-in...");
     try {
-      const success = await window.electronAPI.openYouTubeLogin();
-      if (success) {
+      const ok = await window.electronAPI.openYouTubeLogin();
+      if (ok) {
         setCookiesOk(true);
-
         await fetchInfo(pendingUrl);
         setPendingUrl(null);
-      } else {
-        setStatus("Sign-in cancelled or failed.");
-      }
+      } else setStatus("Sign-in cancelled or failed.");
     } catch (err) {
       setStatus("Error: " + err.message);
     } finally {
@@ -874,41 +938,36 @@ export default function App() {
       setStatus("Please enter a clip start time.");
       return;
     }
-
     setProgress(0);
     setSmoothProgress(0);
     progressRef.current = 0;
     setDone(false);
     setDownloading(true);
     setStatus("Starting download...");
-    window.electronAPI.onProgress((percent) => {
-      setProgress(percent);
+    window.electronAPI.onProgress((pct) => {
+      setProgress(pct);
       setStatus("Downloading...");
     });
     try {
-      const selectedRaw = videoInfo?.rawFormats?.find(
+      const selRaw = videoInfo?.rawFormats?.find(
         (f) =>
           f.height === selectedHeight &&
           f.codec === selectedCodec &&
           f.bitrate === selectedBitrate,
       );
-      const videoFormatId =
-        selectedRaw?.format_id ??
+      const vfid =
+        selRaw?.format_id ??
         videoInfo?.rawFormats
           ?.filter((f) => f.height === selectedHeight)
           .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0]?.format_id;
-
-      // Most YouTube streams above 480p are video-only — append +bestaudio so
-      // yt-dlp fetches a separate audio track and merges it via ffmpeg.
-      const resolvedFormatId = videoFormatId
-        ? selectedRaw?.hasMuxedAudio
-          ? videoFormatId
-          : `${videoFormatId}+bestaudio/best`
+      const fmtId = vfid
+        ? selRaw?.hasMuxedAudio
+          ? vfid
+          : `${vfid}+bestaudio/best`
         : "bestvideo+bestaudio/best";
-
       const result = await window.electronAPI.download({
         url,
-        formatId: resolvedFormatId,
+        formatId: fmtId,
         container: selectedContainer,
         savePath,
         height: selectedHeight,
@@ -919,7 +978,6 @@ export default function App() {
         audioTrackId: audioOnly ? audioTrackId : null,
         audioContainer: audioOnly ? audioContainer : null,
       });
-
       if (result?.cancelled) return;
       setProgress(100);
       setDone(true);
@@ -930,23 +988,15 @@ export default function App() {
             ? "Clip downloaded!"
             : "Download complete!",
       );
-
-      // Save to history
-      const type = audioOnly
-        ? "audio"
-        : clipStart && clipEnd
-          ? "clip"
-          : "video";
-      const quality = audioOnly
-        ? `${audioContainer.toUpperCase()} · ${audioQuality}kbps`
-        : selectedHeight
-          ? `${selectedHeight}p ${selectedContainer.toUpperCase()}`
-          : null;
       await window.electronAPI.addHistory({
         title: videoInfo?.title || url,
         thumbnail: videoInfo?.thumbnail || null,
-        type,
-        quality,
+        type: audioOnly ? "audio" : clipStart && clipEnd ? "clip" : "video",
+        quality: audioOnly
+          ? `${audioContainer.toUpperCase()} · ${audioQuality}kbps`
+          : selectedHeight
+            ? `${selectedHeight}p ${selectedContainer.toUpperCase()}`
+            : null,
         filePath: result?.filePath || null,
         url,
       });
@@ -975,29 +1025,25 @@ export default function App() {
     setThumbDownloading(true);
     setStatus("Saving thumbnail...");
     try {
-      const thumbs = videoInfo.thumbnails || [];
-      const best = thumbs
+      const best = (videoInfo.thumbnails || [])
         .filter((t) => t.url)
         .sort(
           (a, b) =>
             (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0),
         )[0];
-      const thumbnailUrl = best?.url || videoInfo.thumbnail;
-      const filePath = await window.electronAPI.downloadThumbnail({
-        thumbnailUrl,
+      const fp = await window.electronAPI.downloadThumbnail({
+        thumbnailUrl: best?.url || videoInfo.thumbnail,
         title: videoInfo.title,
         savePath,
       });
       setThumbDone(true);
       setStatus("Thumbnail saved!");
-
-      // Save to history
       await window.electronAPI.addHistory({
         title: videoInfo.title,
         thumbnail: videoInfo.thumbnail || null,
         type: "thumbnail",
         quality: "JPG",
-        filePath: filePath || null,
+        filePath: fp || null,
         url,
       });
     } catch (err) {
@@ -1007,949 +1053,1030 @@ export default function App() {
     }
   };
 
-  const AuthPill = () => {
-    if (cookiesOk) {
-      return (
-        <button
-          onClick={async () => {
-            await window.electronAPI.clearCookies();
-            setCookiesOk(false);
-          }}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors group"
-          title="Signed in — click to sign out"
-        >
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          <span className="text-[11px] text-emerald-400">Signed in</span>
-        </button>
-      );
-    }
-    return (
-      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
-        <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
-        <span className="text-[11px] text-white/30">Not signed in</span>
-      </div>
-    );
-  };
+  const raw = videoInfo?.rawFormats || [];
+  const heights = [...new Set(raw.map((f) => f.height))].sort((a, b) => b - a);
+  const codecsAtH = [
+    ...new Set(
+      raw.filter((f) => f.height === selectedHeight).map((f) => f.codec),
+    ),
+  ];
+  const matchFmts = raw
+    .filter((f) => f.height === selectedHeight && f.codec === selectedCodec)
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
+    .filter((f, i, arr) => arr.findIndex((x) => x.bitrate === f.bitrate) === i);
+  const audioTracks = videoInfo?.audioTracks || [];
+  const selRawFmt = raw.find(
+    (f) =>
+      f.height === selectedHeight &&
+      f.codec === selectedCodec &&
+      f.bitrate === selectedBitrate,
+  );
+
+  const dlLabel = done
+    ? "Downloaded"
+    : audioOnly
+      ? `Download ${audioContainer.toUpperCase()}`
+      : clipStart && clipEnd
+        ? `Download Clip · ${selectedContainer.toUpperCase()}`
+        : `Download · ${selectedContainer.toUpperCase()}`;
 
   return (
     <div
-      className="h-screen w-screen bg-[#0a0a0f] text-white flex flex-col overflow-hidden"
-      style={{ fontFamily: "'Inter', system-ui, sans-serif" }}
+      style={{
+        height: "100vh",
+        width: "100vw",
+        background: C.bg,
+        color: C.textPrimary,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        fontFamily: "'DM Sans',system-ui,sans-serif",
+      }}
     >
-      {/* NEW: History drawer */}
       <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />
 
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-40 -left-40 w-[500px] h-[500px] bg-violet-600/10 rounded-full blur-3xl" />
-        <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-pink-600/8 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 left-1/3 w-[400px] h-[300px] bg-blue-600/6 rounded-full blur-3xl" />
+      {/* Ambient glow */}
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          pointerEvents: "none",
+          zIndex: 0,
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: -120,
+            left: -80,
+            width: 500,
+            height: 400,
+            background:
+              "radial-gradient(ellipse,rgba(124,58,237,0.08) 0%,transparent 70%)",
+          }}
+        />
+        <div
+          style={{
+            position: "absolute",
+            bottom: 0,
+            right: -60,
+            width: 400,
+            height: 350,
+            background:
+              "radial-gradient(ellipse,rgba(219,39,119,0.06) 0%,transparent 70%)",
+          }}
+        />
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col px-8 pt-4 pb-8 gap-4 overflow-y-auto scrollbar-hide">
+      <div
+        style={{
+          position: "relative",
+          zIndex: 10,
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
         {/* Header */}
         <div
-          className="flex items-center justify-between flex-shrink-0"
-          style={{ WebkitAppRegion: "drag" }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "10px 24px",
+            flexShrink: 0,
+            WebkitAppRegion: "drag",
+          }}
         >
-          <div className="flex items-center gap-2 select-none">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              userSelect: "none",
+            }}
+          >
             <img
               src={iconPng}
-              alt="App Icon"
-              className="w-10 h-10 object-contain select-none"
+              alt=""
+              style={{ width: 32, height: 32, objectFit: "contain" }}
             />
             <span
-              className="text-xs font-black uppercase tracking-widest"
               style={{
-                background: "linear-gradient(90deg, #a78bfa, #f472b6, #fb923c)",
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                background: C.gradAccent,
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
                 fontStyle: "italic",
               }}
             >
               Seedhe Download
             </span>
           </div>
-          {/* NEW: history button + existing AuthPill, wrapped in no-drag */}
           <div
-            className="flex items-center gap-2"
-            style={{ WebkitAppRegion: "no-drag" }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              WebkitAppRegion: "no-drag",
+            }}
           >
-            <button
-              onClick={() => setHistoryOpen(true)}
-              title="Download history"
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-lg transition-all duration-200"
-              style={{
-                background:
-                  "linear-gradient(135deg, rgba(124,58,237,0.22), rgba(219,39,119,0.18))",
-                border: "1px solid rgba(255,255,255,0.14)",
-                boxShadow: "0 0 18px rgba(124,58,237,0.22)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "translateY(-1px)";
-                e.currentTarget.style.boxShadow =
-                  "0 0 26px rgba(219,39,119,0.35)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "translateY(0px)";
-                e.currentTarget.style.boxShadow =
-                  "0 0 18px rgba(124,58,237,0.22)";
-              }}
-            >
-              🕐
-            </button>
-            <AuthPill />
-          </div>
-        </div>
-
-        {/* URL Bar */}
-        <div className="relative group flex-shrink-0">
-          <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-violet-500/20 to-pink-500/20 blur opacity-0 group-focus-within:opacity-100 transition-opacity duration-300" />
-          <div className="relative flex gap-2 bg-white/5 border border-white/10 rounded-xl p-1.5 backdrop-blur-sm focus-within:border-white/20 transition-colors">
-            <input
-              type="text"
-              placeholder="Paste YouTube URL..."
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && fetchInfo()}
-              className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-white/20 text-white"
-            />
-            {url.trim() && (
+            <IconBtn onClick={() => setHistoryOpen(true)} title="History">
+              <Clock size={16} />
+            </IconBtn>
+            {cookiesOk ? (
               <button
                 onClick={async () => {
-                  try {
-                    const text = await navigator.clipboard.readText();
-                    if (text.trim()) {
-                      setUrl(text.trim());
-                      await fetchInfo(text.trim());
-                    }
-                  } catch {}
+                  await window.electronAPI.clearCookies();
+                  setCookiesOk(false);
                 }}
-                disabled={loading}
-                title="Paste new URL"
-                className="px-3 py-2 rounded-lg text-lg transition-all duration-200 disabled:opacity-30"
-                style={{ background: "rgba(255,255,255,0.08)" }}
+                title="Signed in — click to sign out"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "5px 10px",
+                  borderRadius: 8,
+                  background: "rgba(16,185,129,0.1)",
+                  border: "1px solid rgba(16,185,129,0.2)",
+                  color: "#34d399",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
               >
-                📋
+                <div
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "#34d399",
+                  }}
+                />
+                Signed in
               </button>
+            ) : (
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "5px 10px",
+                  borderRadius: 8,
+                  background: "rgba(255,255,255,0.03)",
+                  border: `1px solid ${C.border}`,
+                  color: C.textFaint,
+                  fontSize: 11,
+                }}
+              >
+                <div
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "rgba(255,255,255,0.15)",
+                  }}
+                />
+                Not signed in
+              </div>
             )}
-            <button
-              onClick={async () => {
-                if (!url.trim()) {
-                  try {
-                    const text = await navigator.clipboard.readText();
-                    if (text.trim()) {
-                      setUrl(text.trim());
-                      await fetchInfo(text.trim());
-                    }
-                  } catch {}
-                } else {
-                  fetchInfo();
-                }
-              }}
-              disabled={loading}
-              className="px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 disabled:opacity-30 flex items-center gap-2"
-              style={{
-                background: "linear-gradient(135deg, #7c3aed, #db2777)",
-                boxShadow: loading ? "none" : "0 0 20px rgba(124,58,237,0.4)",
-              }}
-            >
-              {loading ? (
-                <svg
-                  className="animate-spin w-4 h-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v8z"
-                  />
-                </svg>
-              ) : url.trim() ? (
-                "🔎"
-              ) : (
-                "📋"
-              )}
-            </button>
           </div>
         </div>
-        {/* Age restriction prompt */}
-        {showLoginPrompt && (
-          <div className="flex-shrink-0 bg-white/5 border border-white/15 rounded-xl p-4 flex items-center gap-4">
-            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 text-lg">
-              {botDetected ? "🤖" : "🔞"}
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-white/80">
-                {botDetected
-                  ? "YouTube thinks you're a bot"
-                  : "Age-restricted video"}
-              </p>
-              <p className="text-xs text-white/40 mt-0.5">
-                {botDetected
-                  ? "Sign in to verify it's you and continue downloading"
-                  : "Sign in to YouTube to access this video"}
-              </p>
-            </div>
-            <button
-              onClick={handleYouTubeLogin}
-              className="px-4 py-2 rounded-lg text-sm font-bold transition-colors flex-shrink-0"
-              style={{ background: "#ffffff", color: "#000000" }}
-            >
-              Sign in to YouTube
-            </button>
-          </div>
-        )}
 
-        {loggingIn && (
-          <div className="flex-shrink-0 bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-3">
-            <svg
-              className="animate-spin w-4 h-4 text-white/40"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
+        <div style={{ height: 1, background: C.border, flexShrink: 0 }} />
+
+        {/* Body */}
+        <div
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "20px 24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 18,
+          }}
+          className="scrollbar-hide"
+        >
+          {/* URL bar */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ ...pill(), flex: 1 }}>
+              <input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && fetchInfo(url)}
+                placeholder="Paste YouTube URL..."
+                style={{ ...inputBase }}
               />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8v8z"
-              />
-            </svg>
-            <span className="text-sm text-white/40">
-              Waiting for YouTube sign-in...
-            </span>
-          </div>
-        )}
-
-        {/* Content area */}
-        <div className="flex gap-6 flex-1">
-          {/* Left — video info */}
-          {videoInfo ? (
-            <div className="w-72 flex-shrink-0 flex flex-col gap-4">
-              <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-                {videoInfo.thumbnail && (
-                  <div className="relative">
-                    <img
-                      src={videoInfo.thumbnail}
-                      alt="thumbnail"
-                      className="w-full h-44 object-cover"
-                    />
-                    <div className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
-                      {formatDuration(videoInfo.duration)}
-                    </div>
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                  </div>
-                )}
-
-                {/* Thumbnail download button */}
-                <div className="px-3 pt-3 pb-0">
-                  <button
-                    onClick={downloadThumbnail}
-                    disabled={!savePath || thumbDownloading || thumbDone}
-                    title="Save thumbnail as JPG"
-                    className="w-full py-2 rounded-xl font-semibold text-xs transition-all duration-300 disabled:opacity-30 flex items-center justify-center gap-1.5"
-                    style={{
-                      background: thumbDone
-                        ? "linear-gradient(135deg, #059669, #10b981)"
-                        : "linear-gradient(135deg, #d97706, #f59e0b)",
-                      boxShadow:
-                        thumbDone || !savePath
-                          ? "none"
-                          : "0 0 14px rgba(217,119,6,0.3)",
-                    }}
-                  >
-                    {thumbDownloading ? (
-                      <svg
-                        className="animate-spin w-3.5 h-3.5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                      >
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                        />
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8v8z"
-                        />
-                      </svg>
-                    ) : thumbDone ? (
-                      <>
-                        <svg
-                          className="w-3.5 h-3.5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                        Saved
-                      </>
-                    ) : (
-                      <>
-                        <svg
-                          className="w-3.5 h-3.5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                          />
-                        </svg>
-                        Save Thumbnail
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="p-4">
-                  <p className="font-semibold text-sm leading-snug line-clamp-2 text-white/90">
-                    {videoInfo.title}
-                  </p>
-                  <p className="text-white/40 text-xs mt-1.5">
-                    {videoInfo.uploader}
-                  </p>
-                </div>
-              </div>
-
-              {!audioOnly && selectedHeight && (
-                <div className="flex gap-2 flex-wrap">
-                  {(() => {
-                    const f = videoInfo?.rawFormats?.find(
-                      (r) =>
-                        r.height === selectedHeight &&
-                        r.codec === selectedCodec &&
-                        r.bitrate === selectedBitrate,
-                    );
-                    return (
-                      <>
-                        <span className="text-[11px] px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/20 font-mono">
-                          {f?.width && f?.height
-                            ? `${f.width}×${f.height}`
-                            : `${selectedHeight}p`}
-                        </span>
-                        {selectedCodec && (
-                          <span className="text-[11px] px-2.5 py-1 rounded-full bg-pink-500/15 text-pink-300 border border-pink-500/20 font-mono">
-                            {selectedCodec}
-                          </span>
-                        )}
-                        {selectedBitrate && (
-                          <span className="text-[11px] px-2.5 py-1 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/20 font-mono">
-                            {selectedBitrate} kbps
-                          </span>
-                        )}
-                        {f?.fps && (
-                          <span className="text-[11px] px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 font-mono">
-                            {f.fps} fps
-                          </span>
-                        )}
-                        <span className="text-[11px] px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/20 font-mono">
-                          {selectedContainer.toUpperCase()}
-                        </span>
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
-
-              {audioOnly && (
-                <div className="flex gap-2 flex-wrap">
-                  <span className="text-[11px] px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/20 font-mono">
-                    {audioContainer.toUpperCase()} · {audioQuality}kbps
-                  </span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-white/20">
-              <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/8 flex items-center justify-center">
-                <svg
-                  className="w-8 h-8"
-                  fill="currentColor"
-                  viewBox="0 0 24 24"
+              {url && (
+                <button
+                  onClick={() => {
+                    setUrl("");
+                    setVideoInfo(null);
+                    setStatus("");
+                    setBotDetected(false);
+                    setShowLoginPrompt(false);
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: C.textFaint,
+                    display: "flex",
+                    padding: 2,
+                  }}
                 >
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" />
-                </svg>
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <Btn
+              onClick={async () => {
+                let u = url;
+                if (!u) {
+                  try {
+                    u = await navigator.clipboard.readText();
+                    setUrl(u);
+                  } catch {}
+                }
+                if (u) fetchInfo(u);
+              }}
+              disabled={loading}
+              variant="primary"
+              style={{ minWidth: 110, gap: 6 }}
+            >
+              {loading ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : url ? (
+                "Fetch"
+              ) : (
+                <>
+                  <ClipboardPaste size={14} /> Paste & Fetch
+                </>
+              )}
+            </Btn>
+          </div>
+
+          {/* Bot detected */}
+          {botDetected && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 12,
+                padding: 14,
+                background: "rgba(245,158,11,0.06)",
+                border: "1px solid rgba(245,158,11,0.18)",
+                borderRadius: 12,
+              }}
+            >
+              <Bot
+                size={15}
+                style={{ color: "#fbbf24", flexShrink: 0, marginTop: 2 }}
+              />
+              <div style={{ flex: 1 }}>
+                <p
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "#fde68a",
+                    margin: 0,
+                  }}
+                >
+                  Bot detection triggered
+                </p>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: C.textFaint,
+                    margin: "3px 0 0",
+                  }}
+                >
+                  YouTube thinks you're a bot. Sign in to continue.
+                </p>
               </div>
-              <p className="text-sm">
-                Paste a YouTube URL above to get started
+              <Btn
+                variant="ghost"
+                onClick={handleYouTubeLogin}
+                disabled={loggingIn}
+                style={{ height: 32, padding: "0 12px", fontSize: 12 }}
+              >
+                {loggingIn ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <LogIn size={13} />
+                )}{" "}
+                Sign in
+              </Btn>
+            </div>
+          )}
+
+          {/* Age restricted */}
+          {showLoginPrompt && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 12,
+                padding: 14,
+                background: C.surface,
+                border: `1px solid ${C.border}`,
+                borderRadius: 12,
+              }}
+            >
+              <Lock
+                size={15}
+                style={{ color: C.textMuted, flexShrink: 0, marginTop: 2 }}
+              />
+              <div style={{ flex: 1 }}>
+                <p
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: C.textPrimary,
+                    margin: 0,
+                  }}
+                >
+                  Age-restricted content
+                </p>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: C.textFaint,
+                    margin: "3px 0 0",
+                  }}
+                >
+                  Sign in to your YouTube account to access this video.
+                </p>
+              </div>
+              <Btn
+                variant="ghost"
+                onClick={handleYouTubeLogin}
+                disabled={loggingIn}
+                style={{ height: 32, padding: "0 12px", fontSize: 12 }}
+              >
+                {loggingIn ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <LogIn size={13} />
+                )}{" "}
+                Sign in
+              </Btn>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!videoInfo && !loading && !showLoginPrompt && !botDetected && (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                flex: 1,
+                gap: 12,
+                color: C.textFaint,
+                paddingTop: 80,
+              }}
+            >
+              <Download size={40} strokeWidth={1.2} />
+              <p style={{ fontSize: 13, margin: 0 }}>
+                Paste a YouTube URL to get started
               </p>
             </div>
           )}
 
-          {/* Right — controls */}
+          {/* Loading */}
+          {loading && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                paddingTop: 80,
+                color: C.textFaint,
+              }}
+            >
+              <Loader2 size={18} className="animate-spin" />
+              <span style={{ fontSize: 13 }}>Fetching video info...</span>
+            </div>
+          )}
+
+          {/* Main UI */}
           {videoInfo && (
-            <div className="flex-1 flex flex-col gap-4 min-w-0">
-              {/* Video / Audio toggle */}
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl p-1 self-start">
-                <button
-                  onClick={() => {
-                    setAudioOnly(false);
-                    setDone(false);
-                  }}
-                  className="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200"
-                  style={{
-                    background: !audioOnly
-                      ? "linear-gradient(135deg, #7c3aed, #db2777)"
-                      : "transparent",
-                    color: !audioOnly ? "white" : "rgba(255,255,255,0.4)",
-                  }}
-                >
-                  Video
-                </button>
-                <button
-                  onClick={() => {
-                    setAudioOnly(true);
-                    setDone(false);
-                  }}
-                  className="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200"
-                  style={{
-                    background: audioOnly
-                      ? "linear-gradient(135deg, #7c3aed, #db2777)"
-                      : "transparent",
-                    color: audioOnly ? "white" : "rgba(255,255,255,0.4)",
-                  }}
-                >
-                  Audio only
-                </button>
-              </div>
-
-              {/* Video controls — cascading selectors */}
-              {!audioOnly &&
-                (() => {
-                  const raw = videoInfo.rawFormats || [];
-
-                  const heights = [...new Set(raw.map((f) => f.height))].sort(
-                    (a, b) => b - a,
-                  );
-                  const codecsAtHeight = [
-                    ...new Set(
-                      raw
-                        .filter((f) => f.height === selectedHeight)
-                        .map((f) => f.codec),
-                    ),
-                  ];
-                  const matchingFormats = raw
-                    .filter(
-                      (f) =>
-                        f.height === selectedHeight &&
-                        f.codec === selectedCodec,
-                    )
-                    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-
-                  const selectCls =
-                    "w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80";
-                  const optCls = "bg-[#1a1a2e]";
-                  const Chevron = () => (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </div>
-                  );
-
-                  return (
-                    <div className="grid grid-cols-2 gap-4">
-                      {/* Resolution */}
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                          Resolution
-                        </label>
-                        <div className="relative">
-                          <select
-                            value={selectedHeight ? selectedHeight : ""}
-                            onChange={(e) => {
-                              const h = Number(e.target.value);
-                              setSelectedHeight(h);
-                              const codecs = [
-                                ...new Set(
-                                  raw
-                                    .filter((f) => f.height === h)
-                                    .map((f) => f.codec),
-                                ),
-                              ];
-                              setSelectedCodec(codecs[0] || null);
-                              const brs = raw
-                                .filter(
-                                  (f) =>
-                                    f.height === h && f.codec === codecs[0],
-                                )
-                                .sort(
-                                  (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
-                                );
-                              setSelectedBitrate(brs[0]?.bitrate ?? null);
-                              const firstFmt = raw.find(
-                                (f) => f.height === h && f.codec === codecs[0],
-                              );
-                              setSelectedContainer(firstFmt?.ext || "mp4");
-                              setDone(false);
-                            }}
-                            className={selectCls}
-                          >
-                            {heights.map((h) => (
-                              <option key={h} value={h} className={optCls}>
-                                {h}p
-                              </option>
-                            ))}
-                          </select>
-                          <Chevron />
-                        </div>
-                      </div>
-
-                      {/* Codec */}
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                          Codec
-                        </label>
-                        <div className="relative">
-                          <select
-                            value={selectedCodec ?? ""}
-                            onChange={(e) => {
-                              setSelectedCodec(e.target.value);
-                              const brs = raw
-                                .filter(
-                                  (f) =>
-                                    f.height === selectedHeight &&
-                                    f.codec === e.target.value,
-                                )
-                                .sort(
-                                  (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
-                                );
-                              setSelectedBitrate(brs[0]?.bitrate ?? null);
-                              const firstFmt = raw.find(
-                                (f) =>
-                                  f.height === selectedHeight &&
-                                  f.codec === e.target.value,
-                              );
-                              setSelectedContainer(firstFmt?.ext || "mp4");
-                              setDone(false);
-                            }}
-                            className={selectCls}
-                          >
-                            {codecsAtHeight.map((c) => (
-                              <option key={c} value={c} className={optCls}>
-                                {c}
-                              </option>
-                            ))}
-                          </select>
-                          <Chevron />
-                        </div>
-                      </div>
-
-                      {/* Bitrate */}
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                          Bitrate
-                        </label>
-                        <div className="relative">
-                          <select
-                            value={selectedBitrate ?? ""}
-                            onChange={(e) => {
-                              setSelectedBitrate(Number(e.target.value));
-                              setDone(false);
-                            }}
-                            className={selectCls}
-                          >
-                            {matchingFormats.map((f) => (
-                              <option
-                                key={f.format_id}
-                                value={f.bitrate ?? ""}
-                                className={optCls}
-                              >
-                                {f.bitrate ? `${f.bitrate} kbps` : "Unknown"}
-                                {f.fps >= 60 ? ` · ${f.fps}fps` : ""}
-                                {!f.hasMuxedAudio ? " · video only" : ""}
-                              </option>
-                            ))}
-                          </select>
-                          <Chevron />
-                        </div>
-                      </div>
-
-                      {/* Container */}
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                          Container
-                        </label>
-                        <div className="relative">
-                          <select
-                            value={selectedContainer}
-                            className={selectCls}
-                            onChange={(e) => {
-                              setSelectedContainer(e.target.value);
-                              setDone(false);
-                            }}
-                          >
-                            {[
-                              ...new Set([
-                                ...raw
-                                  .filter(
-                                    (f) =>
-                                      f.height === selectedHeight &&
-                                      f.codec === selectedCodec,
-                                  )
-                                  .map((f) => f.ext)
-                                  .filter(Boolean),
-                                "mkv",
-                              ]),
-                            ].map((c) => (
-                              <option key={c} value={c} className={optCls}>
-                                {c.toUpperCase()}
-                              </option>
-                            ))}
-                          </select>
-                          <Chevron />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-              {/* Audio controls */}
-              {audioOnly && (
-                <div className="space-y-3">
-                  {/* Quality */}
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                      Quality
-                    </label>
-                    <div className="flex gap-2">
-                      {["128", "192", "320"].map((q) => (
-                        <button
-                          key={q}
-                          onClick={() => setAudioQuality(q)}
-                          className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-200 border"
-                          style={{
-                            background:
-                              audioQuality === q
-                                ? "linear-gradient(135deg, #7c3aed33, #db277733)"
-                                : "rgba(255,255,255,0.03)",
-                            borderColor:
-                              audioQuality === q
-                                ? "rgba(124,58,237,0.5)"
-                                : "rgba(255,255,255,0.1)",
-                            color:
-                              audioQuality === q
-                                ? "white"
-                                : "rgba(255,255,255,0.4)",
-                          }}
-                        >
-                          {q}k
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Format */}
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                      Format
-                    </label>
-                    <div className="flex gap-2">
-                      {["mp3", "m4a", "opus", "wav"].map((c) => (
-                        <button
-                          key={c}
-                          onClick={() => {
-                            setAudioContainer(c);
-                            setDone(false);
-                          }}
-                          className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-200 border"
-                          style={{
-                            background:
-                              audioContainer === c
-                                ? "linear-gradient(135deg, #7c3aed33, #db277733)"
-                                : "rgba(255,255,255,0.03)",
-                            borderColor:
-                              audioContainer === c
-                                ? "rgba(124,58,237,0.5)"
-                                : "rgba(255,255,255,0.1)",
-                            color:
-                              audioContainer === c
-                                ? "white"
-                                : "rgba(255,255,255,0.4)",
-                          }}
-                        >
-                          {c.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Audio track selector — only if multiple tracks exist */}
-                  {(videoInfo.audioTracks?.length ?? 0) > 1 && (
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                        Audio Track
-                      </label>
-                      <div className="relative">
-                        <select
-                          value={audioTrackId}
-                          onChange={(e) => {
-                            setAudioTrackId(e.target.value);
-                            setDone(false);
-                          }}
-                          className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500/50 transition-colors cursor-pointer text-white/80"
-                        >
-                          {videoInfo.audioTracks.map((t) => (
-                            <option
-                              key={t.format_id}
-                              value={t.format_id}
-                              className="bg-[#1a1a2e]"
-                            >
-                              {t.label}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M19 9l-7 7-7-7"
-                            />
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Clip section */}
-              <div className="space-y-2">
-                <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                  Clip{" "}
-                  <span className="normal-case font-normal text-white/20">
-                    (optional)
-                  </span>
-                </label>
-
-                {/* Dual-thumb slider */}
-                {duration > 0 && (
-                  <div className="px-1 pt-1 pb-2">
-                    <RangeSlider
-                      min={0}
-                      max={duration}
-                      startVal={sliderStart}
-                      endVal={sliderEnd}
-                      onChange={handleSliderChange}
-                    />
-                    <div className="flex justify-between mt-1">
-                      <span className="text-[10px] text-white/20 font-mono">
-                        0:00
-                      </span>
-                      <span className="text-[10px] text-white/20 font-mono">
-                        {formatDuration(duration)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Text inputs */}
-                <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    placeholder="Start  0:00"
-                    value={clipStart}
-                    onChange={(e) => {
-                      setClipStart(e.target.value);
-                      setDone(false);
-                    }}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-violet-500/50 transition-colors text-white/80 placeholder:text-white/20 font-mono"
-                  />
-                  <input
-                    type="text"
-                    placeholder="End  1:30"
-                    value={clipEnd}
-                    onChange={(e) => {
-                      setClipEnd(e.target.value);
-                      setDone(false);
-                    }}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-violet-500/50 transition-colors text-white/80 placeholder:text-white/20 font-mono"
-                  />
-                </div>
-              </div>
-
-              {/* Save Location */}
-              <div className="space-y-2">
-                <label className="text-[11px] font-semibold uppercase tracking-widest text-white/30">
-                  Save Location
-                </label>
+            <div style={{ display: "flex", gap: 20 }}>
+              {/* Thumbnail col */}
+              <div
+                style={{
+                  width: 200,
+                  flexShrink: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                }}
+              >
                 <div
-                  onClick={pickFolder}
-                  className="w-full flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 cursor-pointer hover:bg-white/8 hover:border-white/20 transition-all duration-200 group"
+                  style={{
+                    borderRadius: 12,
+                    overflow: "hidden",
+                    background: C.surface,
+                    aspectRatio: "16/9",
+                    position: "relative",
+                  }}
+                  className="thumb-wrap"
                 >
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500/30 to-orange-500/30 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
-                    <svg
-                      className="w-4 h-4 text-amber-400"
-                      fill="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
-                    </svg>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] text-white/25 mb-0.5 uppercase tracking-wider">
-                      Save to
-                    </p>
-                    <p className="text-sm text-white/70 truncate font-mono">
-                      {savePath || "Click to choose folder"}
-                    </p>
-                  </div>
-                  <svg
-                    className="w-4 h-4 text-white/20 group-hover:text-white/50 transition-colors flex-shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 5l7 7-7 7"
-                    />
-                  </svg>
-                </div>
-              </div>
-
-              {/* Spacer */}
-              <div className="flex-1" />
-
-              {/* Progress */}
-              {(downloading || done) && (
-                <div className="space-y-2">
-                  <div className="relative h-1.5 bg-white/5 rounded-full overflow-hidden">
-                    <div
-                      className="absolute inset-y-0 left-0 rounded-full"
+                  {videoInfo.thumbnail && (
+                    <img
+                      src={videoInfo.thumbnail}
+                      alt=""
                       style={{
-                        width: `${smoothProgress}%`,
-                        background:
-                          "linear-gradient(90deg, #7c3aed, #db2777, #f59e0b)",
-                        boxShadow: "0 0 12px rgba(124,58,237,0.8)",
-                        transition: "width 0.1s linear",
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
                       }}
                     />
-                    {downloading && (
-                      <div
-                        className="absolute inset-y-0 rounded-full animate-pulse"
+                  )}
+                  <button
+                    onClick={downloadThumbnail}
+                    disabled={thumbDownloading || !savePath}
+                    className="thumb-overlay"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      background: "rgba(0,0,0,0.65)",
+                      opacity: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "#fff",
+                      cursor: "pointer",
+                      border: "none",
+                      transition: "opacity 0.2s",
+                    }}
+                  >
+                    {thumbDownloading ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : thumbDone ? (
+                      <>
+                        <CheckCircle2 size={15} style={{ color: "#34d399" }} />
+                        Saved
+                      </>
+                    ) : (
+                      <>
+                        <ImageIcon size={15} />
+                        Save thumbnail
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div>
+                  <p
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: C.textPrimary,
+                      lineHeight: 1.4,
+                      margin: 0,
+                      display: "-webkit-box",
+                      WebkitLineClamp: 3,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {videoInfo.title}
+                  </p>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      marginTop: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: C.textFaint,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {videoInfo.uploader}
+                    </span>
+                    {videoInfo.duration && (
+                      <span
                         style={{
-                          width: `${smoothProgress}%`,
-                          background:
-                            "linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent)",
+                          fontSize: 11,
+                          color: "rgba(255,255,255,0.12)",
+                          flexShrink: 0,
                         }}
-                      />
+                      >
+                        {formatDuration(videoInfo.duration)}
+                      </span>
                     )}
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-xs text-white/30">{status}</span>
-                    <span className="text-xs font-mono text-white/50">
-                      {smoothProgress.toFixed(1)}%
-                    </span>
-                  </div>
                 </div>
-              )}
-
-              {/* Download / Cancel + Thumbnail */}
-              <div className="flex gap-3">
-                {!downloading ? (
-                  <>
-                    <button
-                      onClick={startDownload}
-                      disabled={!savePath || done}
-                      className="flex-1 py-3.5 rounded-xl font-semibold text-sm transition-all duration-300 disabled:opacity-30"
-                      style={{
-                        background: done
-                          ? "linear-gradient(135deg, #059669, #10b981)"
-                          : "linear-gradient(135deg, #7c3aed, #db2777)",
-                        boxShadow:
-                          !savePath || done
-                            ? "none"
-                            : "0 0 30px rgba(124,58,237,0.35)",
-                      }}
-                    >
-                      {done
-                        ? "✓ Downloaded"
-                        : audioOnly
-                          ? `Download ${audioContainer.toUpperCase()}`
-                          : clipStart && clipEnd
-                            ? `Download Clip · ${selectedContainer.toUpperCase()}`
-                            : `Download · ${selectedContainer.toUpperCase()}`}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      disabled
-                      className="flex-1 py-3.5 rounded-xl font-semibold text-sm opacity-50"
-                      style={{
-                        background: "linear-gradient(135deg, #7c3aed, #db2777)",
-                      }}
-                    >
-                      Downloading...
-                    </button>
-                    <button
-                      onClick={cancelDownload}
-                      className="px-6 py-3.5 rounded-xl font-semibold text-sm transition-all duration-200"
-                      style={{
-                        background: "linear-gradient(135deg, #dc2626, #b91c1c)",
-                        boxShadow: "0 0 20px rgba(220,38,38,0.4)",
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </>
+                {!audioOnly && selRawFmt && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {selRawFmt.width && (
+                      <Badge color="violet">
+                        {selRawFmt.width}×{selRawFmt.height}
+                      </Badge>
+                    )}
+                    {selRawFmt.fps >= 60 && (
+                      <Badge color="violet">{selRawFmt.fps}fps</Badge>
+                    )}
+                    {!selRawFmt.hasMuxedAudio && (
+                      <Badge color="ghost">+audio</Badge>
+                    )}
+                  </div>
                 )}
               </div>
 
-              {!downloading && !done && status && (
-                <p className="text-xs text-center text-white/30">{status}</p>
-              )}
+              {/* Controls col */}
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 16,
+                  minWidth: 0,
+                }}
+              >
+                {/* Video/Audio tabs */}
+                <Tabs.Root
+                  value={audioOnly ? "audio" : "video"}
+                  onValueChange={(v) => {
+                    setAudioOnly(v === "audio");
+                    setDone(false);
+                  }}
+                >
+                  <Tabs.List
+                    style={{
+                      display: "inline-flex",
+                      padding: 4,
+                      gap: 2,
+                      background: C.surface,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 12,
+                    }}
+                  >
+                    {[
+                      { v: "video", l: "Video", I: Video },
+                      { v: "audio", l: "Audio only", I: Music },
+                    ].map(({ v, l, I }) => (
+                      <Tabs.Trigger
+                        key={v}
+                        value={v}
+                        className="tab-trigger"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "6px 14px",
+                          borderRadius: 8,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          border: "none",
+                          cursor: "pointer",
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        <I size={13} />
+                        {l}
+                      </Tabs.Trigger>
+                    ))}
+                  </Tabs.List>
+                </Tabs.Root>
+
+                {/* Video format grid */}
+                {!audioOnly && (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 12,
+                    }}
+                  >
+                    {[
+                      {
+                        label: "Resolution",
+                        value: selectedHeight ? String(selectedHeight) : "",
+                        opts: heights.map((h) => ({
+                          value: h,
+                          label: `${h}p`,
+                        })),
+                        onChange: (v) => {
+                          const h = Number(v);
+                          setSelectedHeight(h);
+                          const cs = [
+                            ...new Set(
+                              raw
+                                .filter((f) => f.height === h)
+                                .map((f) => f.codec),
+                            ),
+                          ];
+                          setSelectedCodec(cs[0]);
+                          const brs = raw
+                            .filter((f) => f.height === h && f.codec === cs[0])
+                            .sort(
+                              (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
+                            );
+                          setSelectedBitrate(brs[0]?.bitrate ?? null);
+                          setSelectedContainer(
+                            raw.find((f) => f.height === h && f.codec === cs[0])
+                              ?.ext || "mp4",
+                          );
+                          setDone(false);
+                        },
+                      },
+                      {
+                        label: "Codec",
+                        value: selectedCodec || "",
+                        opts: codecsAtH.map((c) => ({ value: c, label: c })),
+                        onChange: (v) => {
+                          setSelectedCodec(v);
+                          const brs = raw
+                            .filter(
+                              (f) =>
+                                f.height === selectedHeight && f.codec === v,
+                            )
+                            .sort(
+                              (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
+                            );
+                          setSelectedBitrate(brs[0]?.bitrate ?? null);
+                          setSelectedContainer(
+                            raw.find(
+                              (f) =>
+                                f.height === selectedHeight && f.codec === v,
+                            )?.ext || "mp4",
+                          );
+                          setDone(false);
+                        },
+                      },
+                      {
+                        label: "Bitrate",
+                        value:
+                          selectedBitrate != null
+                            ? String(selectedBitrate)
+                            : "",
+                        opts: matchFmts.map((f) => ({
+                          value: f.bitrate ?? "",
+                          label: f.bitrate ? `${f.bitrate} kbps` : "Unknown",
+                        })),
+                        onChange: (v) => {
+                          setSelectedBitrate(Number(v));
+                          setDone(false);
+                        },
+                      },
+                      {
+                        label: "Container",
+                        value: selectedContainer,
+                        opts: (
+                          videoInfo.availableContainers || ["mp4", "mkv"]
+                        ).map((c) => ({ value: c, label: c.toUpperCase() })),
+                        onChange: (v) => {
+                          setSelectedContainer(v);
+                          setDone(false);
+                        },
+                      },
+                    ].map(({ label, value, opts, onChange }) => (
+                      <div
+                        key={label}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                        }}
+                      >
+                        <FieldLabel>{label}</FieldLabel>
+                        <SelectField
+                          value={value}
+                          onValueChange={onChange}
+                          options={opts}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Audio format grid */}
+                {audioOnly && (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 12,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                      }}
+                    >
+                      <FieldLabel>Format</FieldLabel>
+                      <SelectField
+                        value={audioContainer}
+                        onValueChange={(v) => {
+                          setAudioContainer(v);
+                          setDone(false);
+                        }}
+                        options={["mp3", "m4a", "opus", "wav", "flac"].map(
+                          (f) => ({ value: f, label: f.toUpperCase() }),
+                        )}
+                      />
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                      }}
+                    >
+                      <FieldLabel>Quality</FieldLabel>
+                      <SelectField
+                        value={audioQuality}
+                        onValueChange={(v) => {
+                          setAudioQuality(v);
+                          setDone(false);
+                        }}
+                        options={["320", "256", "192", "128", "96"].map(
+                          (q) => ({ value: q, label: `${q} kbps` }),
+                        )}
+                      />
+                    </div>
+                    {audioTracks.length > 1 && (
+                      <div
+                        style={{
+                          gridColumn: "span 2",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                        }}
+                      >
+                        <FieldLabel>Audio track</FieldLabel>
+                        <SelectField
+                          value={audioTrackId}
+                          onValueChange={(v) => {
+                            setAudioTrackId(v);
+                            setDone(false);
+                          }}
+                          options={[
+                            {
+                              value: "bestaudio/best",
+                              label: "Best available",
+                            },
+                            ...audioTracks.map((t) => ({
+                              value: t.format_id,
+                              label: t.label,
+                            })),
+                          ]}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Clip */}
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <FieldLabel>Clip (optional)</FieldLabel>
+                    {(clipStart || clipEnd) && (
+                      <button
+                        onClick={() => {
+                          setClipStart("");
+                          setClipEnd("");
+                        }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          fontSize: 11,
+                          color: C.textFaint,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 3,
+                        }}
+                      >
+                        <X size={11} />
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 8 }}
+                  >
+                    <div style={{ ...pill(), flex: 1 }}>
+                      <Scissors size={13} style={{ color: C.textFaint }} />
+                      <input
+                        value={clipStart}
+                        onChange={(e) => setClipStart(e.target.value)}
+                        placeholder="0:00"
+                        style={{ ...inputBase, fontSize: 12 }}
+                      />
+                    </div>
+                    <span style={{ color: C.textFaint, fontSize: 12 }}>→</span>
+                    <div style={{ ...pill(), flex: 1 }}>
+                      <input
+                        value={clipEnd}
+                        onChange={(e) => setClipEnd(e.target.value)}
+                        placeholder={formatDuration(duration) || "0:00"}
+                        style={{ ...inputBase, fontSize: 12 }}
+                      />
+                    </div>
+                  </div>
+                  {duration > 0 && (
+                    <RangeSlider
+                      duration={duration}
+                      startSecs={sliderStart}
+                      endSecs={sliderEnd || duration}
+                      onStartChange={setClipStart}
+                      onEndChange={setClipEnd}
+                    />
+                  )}
+                </div>
+
+                {/* Save path */}
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 6 }}
+                >
+                  <FieldLabel>Save to</FieldLabel>
+                  <button
+                    onClick={pickFolder}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      height: 40,
+                      padding: "0 12px",
+                      background: C.surface,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 12,
+                      cursor: "pointer",
+                      color: C.textMuted,
+                      fontSize: 12,
+                      textAlign: "left",
+                      transition: "border-color 0.15s",
+                      width: "100%",
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.borderColor = C.borderHover)
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.borderColor = C.border)
+                    }
+                  >
+                    <FolderOpen
+                      size={15}
+                      style={{ color: C.textFaint, flexShrink: 0 }}
+                    />
+                    <span
+                      style={{
+                        flex: 1,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {savePath || "Choose folder..."}
+                    </span>
+                    <ChevronDown
+                      size={13}
+                      style={{
+                        color: C.textFaint,
+                        flexShrink: 0,
+                        transform: "rotate(-90deg)",
+                      }}
+                    />
+                  </button>
+                </div>
+
+                {/* Progress bar */}
+                {(downloading || done) && (
+                  <div
+                    style={{ display: "flex", flexDirection: "column", gap: 6 }}
+                  >
+                    <div
+                      style={{
+                        height: 3,
+                        background: "rgba(255,255,255,0.05)",
+                        borderRadius: 99,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          borderRadius: 99,
+                          transition: "width 0.15s linear",
+                          width: `${smoothProgress}%`,
+                          background: done ? C.gradSuccess : C.gradAccent,
+                          boxShadow: done
+                            ? "0 0 10px rgba(16,185,129,0.5)"
+                            : C.glowViolet,
+                        }}
+                      />
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span style={{ fontSize: 11, color: C.textFaint }}>
+                        {status}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontFamily: "monospace",
+                          color: C.textFaint,
+                        }}
+                      >
+                        {smoothProgress.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Download / Cancel */}
+                <div style={{ display: "flex", gap: 8, paddingTop: 2 }}>
+                  {!downloading ? (
+                    <Btn
+                      variant={done ? "success" : "primary"}
+                      onClick={startDownload}
+                      disabled={!savePath || done}
+                      fullWidth
+                    >
+                      {done ? (
+                        <>
+                          <CheckCircle2 size={15} />
+                          Downloaded
+                        </>
+                      ) : (
+                        <>
+                          <Download size={15} />
+                          {dlLabel}
+                        </>
+                      )}
+                    </Btn>
+                  ) : (
+                    <>
+                      <Btn
+                        variant="ghost"
+                        disabled
+                        fullWidth
+                        style={{ flex: 1 }}
+                      >
+                        <Loader2 size={15} className="animate-spin" />
+                        Downloading...
+                      </Btn>
+                      <Btn
+                        variant="danger"
+                        onClick={cancelDownload}
+                        style={{ minWidth: 90 }}
+                      >
+                        <X size={14} />
+                        Cancel
+                      </Btn>
+                    </>
+                  )}
+                </div>
+
+                {/* Status msg */}
+                {!downloading && !done && status && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 12,
+                      color: C.textFaint,
+                    }}
+                  >
+                    <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                    {status}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

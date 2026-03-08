@@ -48,8 +48,15 @@
     ]
   },
   "dependencies": {
+    "@radix-ui/react-scroll-area": "^1.2.10",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.577.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "tailwind-merge": "^3.5.0",
     "tree-kill": "^1.2.2"
   },
   "devDependencies": {
