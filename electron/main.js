@@ -160,11 +160,11 @@ function getYtDlpPath() {
   return getBundledYtDlpPath();
 }
 
-function getFfmpegDir() {
+function getFfmpegBin() {
   const binDir = getBinariesDir();
-  if (isWin) return path.join(binDir, "win");
-  if (isMac) return path.join(binDir, "mac");
-  return path.join(binDir, "linux");
+  if (isWin) return path.join(binDir, "win", "ffmpeg.exe");
+  if (isMac) return path.join(binDir, "mac", "ffmpeg");
+  return path.join(binDir, "linux", "ffmpeg");
 }
 
 // ---------------------------------------------------------------------------
@@ -549,6 +549,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Ensure bundled ffmpeg is executable
+  if (!isWin) {
+    try {
+      fs.chmodSync(getFfmpegBin(), 0o755);
+    } catch (e) {
+      console.warn("[bin] could not chmod ffmpeg:", e.message);
+    }
+  }
   const win = createWindow();
   win.setMenu(null);
 
@@ -936,7 +944,7 @@ ipcMain.handle(
           "--audio-quality",
           `${quality}k`,
           "--ffmpeg-location",
-          getFfmpegDir(),
+          getFfmpegBin(),
           ...resolveJsRuntimeArgs(),
           ...cookieArgs(),
           ...(clipStart && clipEnd
@@ -954,7 +962,7 @@ ipcMain.handle(
           "--merge-output-format",
           container,
           "--ffmpeg-location",
-          getFfmpegDir(),
+          getFfmpegBin(),
           ...resolveJsRuntimeArgs(),
           ...cookieArgs(),
           ...(clipStart && clipEnd
@@ -979,6 +987,8 @@ ipcMain.handle(
         "clipStart:",
         clipStart,
       );
+      console.log("[download] ffmpeg path:", getFfmpegBin());
+      console.log("[download] ffmpeg exists:", fs.existsSync(getFfmpegBin()));
       const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
       activeDownload = proc;
       activeDownloadSavePath = savePath;
