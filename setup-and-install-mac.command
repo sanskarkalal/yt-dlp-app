@@ -179,6 +179,113 @@ else
   echo "==> ffmpeg already present, skipping download (use --force-download to rebuild universal binary)"
 fi
 
+# ── ffprobe (universal binary via lipo) ──────────────────────────────────────
+FFPROBE_PATH="${MAC_BIN_DIR}/ffprobe"
+
+download_ffprobe_arch() {
+  local urls=("${@:1:$#-1}")
+  local out="${@: -1}"
+  for url in "${urls[@]}"; do
+    local tmp_zip tmp_dir found
+    tmp_zip="$(mktemp -t ffprobe_zip_XXXXXX).zip"
+    tmp_dir="$(mktemp -d -t ffprobe_extract_XXXXXX)"
+    if curl -fL "${url}" -o "${tmp_zip}" 2>/dev/null; then
+      unzip -q "${tmp_zip}" -d "${tmp_dir}" 2>/dev/null || true
+      found="$(find "${tmp_dir}" -type f -name ffprobe | head -n 1 || true)"
+      if [[ -n "${found}" ]]; then
+        cp "${found}" "${out}"
+        chmod +x "${out}"
+        rm -f "${tmp_zip}"
+        rm -rf "${tmp_dir}"
+        return 0
+      fi
+    fi
+    rm -f "${tmp_zip}"
+    rm -rf "${tmp_dir}"
+  done
+  return 1
+}
+
+copy_local_ffprobe_if_available() {
+  local target_path="$1"
+  if command -v ffprobe >/dev/null 2>&1; then
+    local local_ffprobe
+    local_ffprobe="$(command -v ffprobe)"
+    cp "${local_ffprobe}" "${target_path}"
+    chmod +x "${target_path}"
+    echo "==> Using local ffprobe from PATH: ${local_ffprobe}"
+    return 0
+  fi
+  return 1
+}
+
+if [[ "${FORCE_DOWNLOAD}" -eq 1 || ! -f "${FFPROBE_PATH}" ]]; then
+  echo "==> Downloading ffprobe (universal binary for arm64 + x86_64)"
+
+  ARM64_FFPROBE_URLS=(
+    "https://www.osxexperts.net/ffprobe7arm.zip"
+  )
+  X86_FFPROBE_URLS=(
+    "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"
+  )
+
+  TMP_ARM64_P="$(mktemp -t ffprobe_arm64_XXXXXX)"
+  TMP_X86_P="$(mktemp -t ffprobe_x86_XXXXXX)"
+
+  ARM_P_OK=0
+  X86_P_OK=0
+
+  echo "==> Fetching arm64 ffprobe..."
+  if download_ffprobe_arch "${ARM64_FFPROBE_URLS[@]}" "${TMP_ARM64_P}"; then
+    ARM_P_OK=1
+    echo "==> arm64 ffprobe downloaded"
+  else
+    echo "==> arm64 ffprobe download failed"
+  fi
+
+  echo "==> Fetching x86_64 ffprobe..."
+  if download_ffprobe_arch "${X86_FFPROBE_URLS[@]}" "${TMP_X86_P}"; then
+    X86_P_OK=1
+    echo "==> x86_64 ffprobe downloaded"
+  else
+    echo "==> x86_64 ffprobe download failed"
+  fi
+
+  if [[ "${ARM_P_OK}" -eq 1 && "${X86_P_OK}" -eq 1 ]]; then
+    echo "==> Building universal ffprobe binary with lipo"
+    lipo -create -output "${FFPROBE_PATH}" "${TMP_ARM64_P}" "${TMP_X86_P}"
+    chmod +x "${FFPROBE_PATH}"
+    echo "==> Universal ffprobe created: $(file "${FFPROBE_PATH}")"
+  elif [[ "${ARM_P_OK}" -eq 1 ]]; then
+    echo "==> Warning: only arm64 ffprobe available, using arm64-only binary"
+    cp "${TMP_ARM64_P}" "${FFPROBE_PATH}"
+    chmod +x "${FFPROBE_PATH}"
+  elif [[ "${X86_P_OK}" -eq 1 ]]; then
+    echo "==> Warning: only x86_64 ffprobe available, using x86_64-only binary"
+    cp "${TMP_X86_P}" "${FFPROBE_PATH}"
+    chmod +x "${FFPROBE_PATH}"
+  else
+    echo "==> All ffprobe download sources failed, checking local/Homebrew"
+    if ! copy_local_ffprobe_if_available "${FFPROBE_PATH}"; then
+      if command -v brew >/dev/null 2>&1; then
+        echo "==> Installing ffmpeg (includes ffprobe) with Homebrew"
+        brew install ffmpeg
+        copy_local_ffprobe_if_available "${FFPROBE_PATH}" || true
+      fi
+    fi
+  fi
+
+  rm -f "${TMP_ARM64_P}" "${TMP_X86_P}"
+
+  if [[ ! -f "${FFPROBE_PATH}" ]]; then
+    echo "Could not provision ffprobe automatically."
+    echo "Install ffmpeg manually (brew install ffmpeg), then rerun."
+    exit 1
+  fi
+else
+  echo "==> ffprobe already present, skipping download (use --force-download to rebuild)"
+fi
+
 echo "==> Building macOS installer"
 npm run dist:mac
 

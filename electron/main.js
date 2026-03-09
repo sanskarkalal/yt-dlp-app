@@ -139,6 +139,13 @@ function getFfmpegBin() {
   return path.join(binDir, "linux", "ffmpeg");
 }
 
+function getFfprobeBin() {
+  const binDir = getBinariesDir();
+  if (isWin) return path.join(binDir, "win", "ffprobe.exe");
+  if (isMac) return path.join(binDir, "mac", "ffprobe");
+  return path.join(binDir, "linux", "ffprobe");
+}
+
 // ---------------------------------------------------------------------------
 // yt-dlp auto-update
 // ---------------------------------------------------------------------------
@@ -383,10 +390,13 @@ function ensureNodeShim() {
 
 function getYtDlpEnv() {
   const shimDir = ensureNodeShim();
+  // Prepend bundled ffmpeg dir so yt-dlp always resolves ffmpeg from our
+  // bundle — never from the system PATH. shimDir comes first for the node shim.
+  const ffmpegDir = path.dirname(getFfmpegBin());
   return {
     ...process.env,
     ELECTRON_RUN_AS_NODE: "1",
-    PATH: `${shimDir}${path.delimiter}${process.env.PATH || ""}`,
+    PATH: `${shimDir}${path.delimiter}${ffmpegDir}${path.delimiter}${process.env.PATH || ""}`,
   };
 }
 
@@ -521,12 +531,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // Ensure bundled ffmpeg is executable
+  // Ensure bundled ffmpeg and ffprobe are executable
   if (!isWin) {
-    try {
-      fs.chmodSync(getFfmpegBin(), 0o755);
-    } catch (e) {
-      console.warn("[bin] could not chmod ffmpeg:", e.message);
+    for (const bin of [getFfmpegBin(), getFfprobeBin()]) {
+      try {
+        if (fs.existsSync(bin)) fs.chmodSync(bin, 0o755);
+      } catch (e) {
+        console.warn("[bin] could not chmod:", bin, e.message);
+      }
     }
   }
   const win = createWindow();
@@ -919,6 +931,8 @@ ipcMain.handle(
           `${quality}k`,
           "--ffmpeg-location",
           getFfmpegBin(),
+          "--postprocessor-args",
+          "ffmpeg:-y",
           ...resolveJsRuntimeArgs(),
           ...cookieArgs(),
           ...(clipStart && clipEnd
@@ -937,6 +951,8 @@ ipcMain.handle(
           container,
           "--ffmpeg-location",
           getFfmpegBin(),
+          "--postprocessor-args",
+          "ffmpeg:-y",
           ...resolveJsRuntimeArgs(),
           ...cookieArgs(),
           ...(clipStart && clipEnd
@@ -1255,6 +1271,5 @@ ipcMain.handle("delete-file", (_, filePath) => {
   } catch (err) {
     console.error("[delete-file] Error:", err);
   }
-  
   return true;
 });
