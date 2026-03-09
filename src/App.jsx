@@ -240,6 +240,12 @@ export default function App() {
     }
   };
 
+  const isInstallingUpdate = appUpdateState.status === "installing";
+  const isUpdateBusy =
+    checkingAppUpdate ||
+    appUpdateState.status === "downloading" ||
+    isInstallingUpdate;
+
   useEffect(() => {
     setThumbnailLoadError(false);
     setThumbnailCandidateIndex(0);
@@ -797,7 +803,7 @@ export default function App() {
                   whiteSpace: "nowrap",
                 }}
               >
-                Seedhe Download by Sanskar Kalal
+                Seedhe Download by Sanskar
               </span>
               <img
                 src={iconPng}
@@ -817,6 +823,7 @@ export default function App() {
             >
               <button
                 onClick={checkForAppUpdate}
+                disabled={isUpdateBusy}
                 title={appUpdateState.message || "Check for updates"}
                 style={{
                   display: "inline-flex",
@@ -828,17 +835,14 @@ export default function App() {
                   border: `1px solid ${C.border}`,
                   color: C.textFaint,
                   fontSize: 11,
-                  cursor: "pointer",
+                  cursor: isUpdateBusy ? "default" : "pointer",
+                  opacity: isUpdateBusy ? 0.75 : 1,
                   maxWidth: 220,
                 }}
               >
                 <RefreshCw
                   size={12}
-                  className={
-                    checkingAppUpdate || appUpdateState.status === "downloading"
-                      ? "animate-spin"
-                      : ""
-                  }
+                  className={isUpdateBusy ? "animate-spin" : ""}
                 />
                 <span
                   style={{
@@ -847,18 +851,21 @@ export default function App() {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {appUpdateState.status === "downloaded"
-                    ? "Update ready"
-                    : checkingAppUpdate
-                      ? "Checking..."
-                      : appUpdateState.status === "downloading"
-                        ? `Updating ${Math.round(appUpdateState.progress || 0)}%`
-                        : `v${appVersion || "?"}`}
+                  {isInstallingUpdate
+                    ? "Installing update..."
+                    : appUpdateState.status === "downloaded"
+                      ? "Update ready"
+                      : checkingAppUpdate
+                        ? "Checking..."
+                        : appUpdateState.status === "downloading"
+                          ? `Updating ${Math.round(appUpdateState.progress || 0)}%`
+                          : `v${appVersion || "?"}`}
                 </span>
               </button>
               {appUpdateState.updateDownloaded && (
                 <button
                   onClick={installAppUpdate}
+                  disabled={isInstallingUpdate}
                   title="Install downloaded update now"
                   style={{
                     display: "inline-flex",
@@ -870,11 +877,12 @@ export default function App() {
                     border: "1px solid rgba(16,185,129,0.3)",
                     color: "#34d399",
                     fontSize: 11,
-                    cursor: "pointer",
+                    cursor: isInstallingUpdate ? "default" : "pointer",
+                    opacity: isInstallingUpdate ? 0.75 : 1,
                   }}
                 >
                   <CheckCircle2 size={12} />
-                  Install update
+                  {isInstallingUpdate ? "Installing..." : "Install update"}
                 </button>
               )}
               <IconBtn
