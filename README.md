@@ -16,6 +16,7 @@ Supports HD downloads, audio-only export, clip trimming, and age-restricted cont
 - Age-restricted video support via embedded Google sign-in
 - Download history with Show in Finder / Explorer
 - Self-contained — yt-dlp and ffmpeg are bundled
+- Automatic app updates from GitHub Releases
 - Works on **Windows** and **macOS**
 
 ---
@@ -166,6 +167,26 @@ npm run dist
 Output goes to the `release/` folder:
 - Windows: `release/*Setup*.exe`
 - macOS: `release/*.dmg`
+
+## 🚀 Publish a Release (for Auto-Update)
+
+Auto-update requires GitHub release assets (`latest*.yml`, installers, blockmaps/zip) to be uploaded by `electron-builder`.
+
+Set a GitHub token in your shell:
+
+```bash
+export GH_TOKEN=your_github_token
+```
+
+Then publish from the platform you are building:
+
+```bash
+# Windows
+npm run publish:win
+
+# macOS
+npm run publish:mac
+```
 
 ---
 

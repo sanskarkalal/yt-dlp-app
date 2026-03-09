@@ -9,9 +9,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getCookiesStatus: () => ipcRenderer.invoke("get-cookies-status"),
   openYouTubeLogin: () => ipcRenderer.invoke("open-youtube-login"),
   clearCookies: () => ipcRenderer.invoke("clear-cookies"),
+  getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+  getAppUpdateState: () => ipcRenderer.invoke("get-app-update-state"),
+  checkForAppUpdate: () => ipcRenderer.invoke("check-for-app-update"),
+  installAppUpdate: () => ipcRenderer.invoke("install-app-update"),
   onProgress: (cb) => {
     ipcRenderer.removeAllListeners("download-progress");
     ipcRenderer.on("download-progress", (_, percent) => cb(percent));
+  },
+  onAppUpdate: (cb) => {
+    ipcRenderer.removeAllListeners("app-update");
+    ipcRenderer.on("app-update", (_, state) => cb(state));
   },
   onCookiesStatus: (cb) => {
     ipcRenderer.removeAllListeners("cookies-status");

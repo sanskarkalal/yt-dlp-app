@@ -20,9 +20,7 @@ chmod +x "$YTDLP_PATH" "$FFMPEG_PATH"
 rm -rf release
 
 npm run build
-npx electron-builder --mac dmg
+npx electron-builder --mac --publish never
 
-find release -mindepth 1 ! -name "*.dmg" -exec rm -rf {} +
-
-echo "DMG ready:"
-ls -1 release/*.dmg
+echo "macOS artifacts ready:"
+ls -1 release/*.{dmg,zip,yml,blockmap} 2>/dev/null || ls -1 release

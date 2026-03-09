@@ -1,6 +1,6 @@
 {
   "name": "yt-dlp-app",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -13,7 +13,9 @@
     "release:mac": "bash ./scripts/release-mac.sh",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac"
+    "dist:mac": "npm run build && electron-builder --mac",
+    "publish:win": "npm run build && electron-builder --win --publish always",
+    "publish:mac": "npm run build && electron-builder --mac --publish always"
   },
   "build": {
     "appId": "com.ytdlp.app",
@@ -32,7 +34,10 @@
       }
     ],
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.utilities",
       "icon": "build/icon.icns",
       "hardenedRuntime": false,
@@ -45,6 +50,14 @@
       "dist/**/*",
       "electron/**/*",
       "resources/**/*"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "sanskarkalal",
+        "repo": "yt-dlp-app",
+        "releaseType": "release"
+      }
     ]
   },
   "dependencies": {
@@ -53,6 +66,7 @@
     "@radix-ui/react-separator": "^1.1.8",
     "@radix-ui/react-tabs": "^1.1.13",
     "clsx": "^2.1.1",
+    "electron-updater": "^6.8.3",
     "lucide-react": "^0.577.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

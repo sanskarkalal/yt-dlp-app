@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
+import electronUpdaterPkg from "electron-updater";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
@@ -15,6 +16,20 @@ const __dirname = path.dirname(__filename);
 
 const isWin = process.platform === "win32";
 const isMac = process.platform === "darwin";
+const { autoUpdater } = electronUpdaterPkg;
+const supportsAppAutoUpdate = isWin || isMac;
+const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const GITHUB_OWNER = "sanskarkalal";
+const GITHUB_REPO = "yt-dlp-app";
+let appUpdateInterval = null;
+let appUpdateState = {
+  status: "idle",
+  message: "Not checked yet",
+  updateAvailable: false,
+  updateDownloaded: false,
+  progress: 0,
+  version: app.getVersion(),
+};
 
 // ---------------------------------------------------------------------------
 // Binary paths
@@ -431,6 +446,134 @@ async function checkAndUpdateYtDlp() {
   }
 }
 
+function pushAppUpdateState(next) {
+  appUpdateState = { ...appUpdateState, ...next };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("app-update", appUpdateState);
+  }
+}
+
+async function checkForAppUpdate() {
+  if (!supportsAppAutoUpdate || !app.isPackaged) {
+    return {
+      ok: false,
+      reason: "App updates are only available in packaged macOS/Windows builds.",
+    };
+  }
+  try {
+    await autoUpdater.checkForUpdates();
+    return { ok: true };
+  } catch (err) {
+    pushAppUpdateState({
+      status: "error",
+      message: err?.message || "Failed to check for app updates",
+    });
+    return { ok: false, reason: err?.message || "Update check failed" };
+  }
+}
+
+function initAppAutoUpdater() {
+  if (!supportsAppAutoUpdate) {
+    pushAppUpdateState({
+      status: "unsupported",
+      message: "Auto-update is only supported on macOS and Windows.",
+    });
+    return;
+  }
+
+  if (!app.isPackaged) {
+    pushAppUpdateState({
+      status: "development",
+      message: "Auto-update is disabled in development builds.",
+    });
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: GITHUB_OWNER,
+    repo: GITHUB_REPO,
+  });
+
+  autoUpdater.on("checking-for-update", () => {
+    pushAppUpdateState({
+      status: "checking",
+      message: "Checking for updates...",
+      progress: 0,
+    });
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    pushAppUpdateState({
+      status: "downloading",
+      message: `Downloading version ${info?.version || "latest"}...`,
+      updateAvailable: true,
+      updateDownloaded: false,
+      version: info?.version || app.getVersion(),
+      progress: 0,
+    });
+  });
+
+  autoUpdater.on("download-progress", (progressObj) => {
+    pushAppUpdateState({
+      status: "downloading",
+      message: `Downloading update... ${Math.round(progressObj.percent || 0)}%`,
+      progress: Number(progressObj.percent || 0),
+    });
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    pushAppUpdateState({
+      status: "up-to-date",
+      message: "You are on the latest version.",
+      updateAvailable: false,
+      updateDownloaded: false,
+      progress: 100,
+      version: app.getVersion(),
+    });
+  });
+
+  autoUpdater.on("update-downloaded", async (info) => {
+    pushAppUpdateState({
+      status: "downloaded",
+      message: `Version ${info?.version || "latest"} is ready. Restart to install.`,
+      updateAvailable: true,
+      updateDownloaded: true,
+      progress: 100,
+      version: info?.version || app.getVersion(),
+    });
+
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      buttons: ["Restart now", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Update ready",
+      message: "A new version has been downloaded.",
+      detail: "Restart now to finish installing the update.",
+    });
+    if (result.response === 0) {
+      autoUpdater.quitAndInstall(false, true);
+    }
+  });
+
+  autoUpdater.on("error", (err) => {
+    pushAppUpdateState({
+      status: "error",
+      message: err?.message || "Auto-update error",
+    });
+  });
+
+  checkForAppUpdate();
+  appUpdateInterval = setInterval(
+    checkForAppUpdate,
+    APP_UPDATE_CHECK_INTERVAL_MS,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Cookies & auth helpers
 // ---------------------------------------------------------------------------
@@ -657,6 +800,10 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 
+  mainWindow.webContents.on("did-finish-load", () => {
+    mainWindow.webContents.send("app-update", appUpdateState);
+  });
+
   // Some thumbnail CDNs block requests without browser-like headers.
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
     { urls: ["http://*/*", "https://*/*"] },
@@ -698,10 +845,15 @@ app.whenReady().then(() => {
   console.log("[bin] yt-dlp path:", getYtDlpPath());
   console.log("[bin] yt-dlp exists:", fs.existsSync(getYtDlpPath()));
 
+  initAppAutoUpdater();
   checkAndUpdateYtDlp();
 });
 
 app.on("window-all-closed", () => {
+  if (appUpdateInterval) {
+    clearInterval(appUpdateInterval);
+    appUpdateInterval = null;
+  }
   if (!isMac) app.quit();
 });
 
@@ -822,6 +974,18 @@ ipcMain.handle("clear-cookies", () => {
   const p = getCookiesPath();
   if (fs.existsSync(p)) fs.unlinkSync(p);
   if (fs.existsSync(LEGACY_COOKIES_PATH)) fs.unlinkSync(LEGACY_COOKIES_PATH);
+  return true;
+});
+
+ipcMain.handle("get-app-version", () => app.getVersion());
+
+ipcMain.handle("get-app-update-state", () => appUpdateState);
+
+ipcMain.handle("check-for-app-update", async () => checkForAppUpdate());
+
+ipcMain.handle("install-app-update", () => {
+  if (!appUpdateState.updateDownloaded) return false;
+  autoUpdater.quitAndInstall(false, true);
   return true;
 });
 

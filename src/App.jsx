@@ -31,6 +31,8 @@ import DownloadActions from "./components/DownloadActions";
 import HistoryDrawer from "./components/HistoryDrawer";
 import { Badge, Btn, IconBtn, inputBase, pill } from "./components/ui/Primitives";
 
+const SAVE_PATH_STORAGE_KEY = "seedhe_download_save_path";
+
 function normalizeThumbnailUrl(u) {
   if (!u || typeof u !== "string") return null;
   const s = u.replace(/&amp;/g, "&").trim();
@@ -90,6 +92,15 @@ export default function App() {
   const [botDetected, setBotDetected] = useState(false);
   const [thumbnailLoadError, setThumbnailLoadError] = useState(false);
   const [thumbnailCandidateIndex, setThumbnailCandidateIndex] = useState(0);
+  const [appVersion, setAppVersion] = useState("");
+  const [checkingAppUpdate, setCheckingAppUpdate] = useState(false);
+  const [appUpdateState, setAppUpdateState] = useState({
+    status: "idle",
+    message: "Not checked yet",
+    updateDownloaded: false,
+    progress: 0,
+    version: "",
+  });
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
 
@@ -176,9 +187,54 @@ export default function App() {
 
   useEffect(() => {
     window.electronAPI.getCookiesStatus().then(setCookiesOk);
-    window.electronAPI.getDownloadsPath().then(setSavePath);
+    window.electronAPI.getDownloadsPath().then((defaultPath) => {
+      const storedPath = localStorage.getItem(SAVE_PATH_STORAGE_KEY);
+      setSavePath(storedPath || defaultPath);
+    });
     window.electronAPI.onCookiesStatus((ok) => setCookiesOk(ok));
+    window.electronAPI.getAppVersion().then(setAppVersion);
+    window.electronAPI
+      .getAppUpdateState()
+      .then((state) => state && setAppUpdateState(state));
+    window.electronAPI.onAppUpdate((state) => {
+      if (state) setAppUpdateState(state);
+      setCheckingAppUpdate(false);
+    });
   }, []);
+
+  const checkForAppUpdate = async () => {
+    try {
+      setCheckingAppUpdate(true);
+      const result = await window.electronAPI.checkForAppUpdate();
+      if (!result?.ok) {
+        setCheckingAppUpdate(false);
+        setAppUpdateState((prev) => ({
+          ...prev,
+          status: "error",
+          message: result?.reason || "Update check failed",
+        }));
+      }
+    } catch {
+      setCheckingAppUpdate(false);
+      setAppUpdateState((prev) => ({
+        ...prev,
+        status: "error",
+        message: "Update check failed",
+      }));
+    }
+  };
+
+  const installAppUpdate = async () => {
+    try {
+      await window.electronAPI.installAppUpdate();
+    } catch {
+      setAppUpdateState((prev) => ({
+        ...prev,
+        status: "error",
+        message: "Failed to install update",
+      }));
+    }
+  };
 
   useEffect(() => {
     setThumbnailLoadError(false);
@@ -303,7 +359,10 @@ export default function App() {
 
   const pickFolder = async () => {
     const p = await window.electronAPI.selectFolder();
-    if (p) setSavePath(p);
+    if (p) {
+      setSavePath(p);
+      localStorage.setItem(SAVE_PATH_STORAGE_KEY, p);
+    }
   };
 
   const startDownload = async () => {
@@ -751,6 +810,68 @@ export default function App() {
                 WebkitAppRegion: "no-drag",
               }}
             >
+              <button
+                onClick={checkForAppUpdate}
+                title={appUpdateState.message || "Check for updates"}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "5px 10px",
+                  borderRadius: 8,
+                  background: C.surfaceHigh,
+                  border: `1px solid ${C.border}`,
+                  color: C.textFaint,
+                  fontSize: 11,
+                  cursor: "pointer",
+                  maxWidth: 220,
+                }}
+              >
+                <RefreshCw
+                  size={12}
+                  className={
+                    checkingAppUpdate || appUpdateState.status === "downloading"
+                      ? "animate-spin"
+                      : ""
+                  }
+                />
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {appUpdateState.status === "downloaded"
+                    ? "Update ready"
+                    : checkingAppUpdate
+                      ? "Checking..."
+                      : appUpdateState.status === "downloading"
+                        ? `Updating ${Math.round(appUpdateState.progress || 0)}%`
+                        : `v${appVersion || "?"}`}
+                </span>
+              </button>
+              {appUpdateState.updateDownloaded && (
+                <button
+                  onClick={installAppUpdate}
+                  title="Install downloaded update now"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "5px 10px",
+                    borderRadius: 8,
+                    background: "rgba(16,185,129,0.12)",
+                    border: "1px solid rgba(16,185,129,0.3)",
+                    color: "#34d399",
+                    fontSize: 11,
+                    cursor: "pointer",
+                  }}
+                >
+                  <CheckCircle2 size={12} />
+                  Install update
+                </button>
+              )}
               <IconBtn
                 onClick={() => setDarkMode((p) => !p)}
                 title={darkMode ? "Light mode" : "Dark mode"}
@@ -1351,5 +1472,3 @@ export default function App() {
     </ThemeCtx.Provider>
   );
 }
-
-
