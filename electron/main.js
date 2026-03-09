@@ -1255,5 +1255,6 @@ ipcMain.handle("delete-file", (_, filePath) => {
   } catch (err) {
     console.error("[delete-file] Error:", err);
   }
+  
   return true;
 });
