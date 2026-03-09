@@ -23,6 +23,7 @@ import {
   Square,
   AlertCircle,
   ClipboardPaste,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "./lib/utils";
 import iconPng from "./assets/icon.png";
@@ -320,6 +321,7 @@ function RangeSlider({
   endSecs,
   onStartChange,
   onEndChange,
+  disabled,
 }) {
   const trackRef = useRef(null);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -334,6 +336,7 @@ function RangeSlider({
     return `${m}:${String(sec).padStart(2, "0")}`;
   };
   const drag = (which) => (e) => {
+    if (disabled) return;
     e.preventDefault();
     const move = (me) => {
       if (!trackRef.current) return;
@@ -409,14 +412,15 @@ function RangeSlider({
 function HistoryDrawer({ open, onClose }) {
   const [history, setHistory] = useState([]);
   const [clearing, setClearing] = useState(false);
-  const [deletingId, setDeletingId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   useEffect(() => {
     if (open) window.electronAPI.getHistory().then(setHistory);
     else setSelectedIds(new Set());
   }, [open]);
+
   const handleClearAll = async () => {
     setClearing(true);
     await window.electronAPI.clearHistory();
@@ -424,18 +428,34 @@ function HistoryDrawer({ open, onClose }) {
     setSelectedIds(new Set());
     setClearing(false);
   };
-  const handleDeleteEntry = async (entry) => {
-    setDeletingId(entry.id);
-    if (entry.filePath) await window.electronAPI.deleteFile(entry.filePath);
+
+  const handleRemoveEntry = async (e, entry) => {
+    e.stopPropagation();
     await window.electronAPI.deleteHistoryEntry(entry.id);
-    setHistory((p) => p.filter((e) => e.id !== entry.id));
+    setHistory((p) => p.filter((x) => x.id !== entry.id));
     setSelectedIds((p) => {
       const n = new Set(p);
       n.delete(entry.id);
       return n;
     });
-    setDeletingId(null);
   };
+
+  const handleDeleteSelected = () =>
+    setConfirmDialog({ type: "bulk", count: selectedIds.size });
+
+  const confirmDelete = async () => {
+    const dialog = confirmDialog;
+    setConfirmDialog(null);
+    setBulkDeleting(true);
+    for (const e of history.filter((e) => selectedIds.has(e.id))) {
+      if (e.filePath) await window.electronAPI.deleteFile(e.filePath);
+      await window.electronAPI.deleteHistoryEntry(e.id);
+    }
+    setHistory((p) => p.filter((e) => !selectedIds.has(e.id)));
+    setSelectedIds(new Set());
+    setBulkDeleting(false);
+  };
+
   const toggleSelect = (id) =>
     setSelectedIds((p) => {
       const n = new Set(p);
@@ -446,16 +466,6 @@ function HistoryDrawer({ open, onClose }) {
     selectedIds.size === history.length
       ? setSelectedIds(new Set())
       : setSelectedIds(new Set(history.map((e) => e.id)));
-  const bulkDelete = async () => {
-    setBulkDeleting(true);
-    for (const e of history.filter((e) => selectedIds.has(e.id))) {
-      if (e.filePath) await window.electronAPI.deleteFile(e.filePath);
-      await window.electronAPI.deleteHistoryEntry(e.id);
-    }
-    setHistory((p) => p.filter((e) => !selectedIds.has(e.id)));
-    setSelectedIds(new Set());
-    setBulkDeleting(false);
-  };
   const typeMeta = {
     video: { label: "Video", color: "violet", Icon: Video },
     audio: { label: "Audio", color: "pink", Icon: Music },
@@ -466,6 +476,120 @@ function HistoryDrawer({ open, onClose }) {
 
   return (
     <>
+      {/* Confirmation dialog — centered over entire app */}
+      {confirmDialog && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.7)",
+            backdropFilter: "blur(8px)",
+          }}
+        >
+          <div
+            style={{
+              width: 300,
+              background: "#13132a",
+              border: `1px solid ${C.border}`,
+              borderRadius: 18,
+              padding: "28px 24px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 20,
+              boxShadow: "0 32px 80px rgba(0,0,0,0.7)",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                alignItems: "center",
+              }}
+            >
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: "rgba(220,38,38,0.12)",
+                  border: "1px solid rgba(220,38,38,0.2)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Trash2 size={18} style={{ color: "#f87171" }} />
+              </div>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: C.textPrimary,
+                  textAlign: "center",
+                }}
+              >
+                Delete {confirmDialog.count} item
+                {confirmDialog.count > 1 ? "s" : ""}?
+              </p>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 12,
+                  color: C.textFaint,
+                  lineHeight: 1.6,
+                  textAlign: "center",
+                }}
+              >
+                This will delete the selected item
+                {confirmDialog.count > 1 ? "s" : ""} and their files from disk.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => setConfirmDialog(null)}
+                style={{
+                  flex: 1,
+                  height: 38,
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: C.surfaceHigh,
+                  border: `1px solid ${C.border}`,
+                  color: C.textMuted,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                style={{
+                  flex: 1,
+                  height: 38,
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "linear-gradient(135deg,#dc2626,#b91c1c)",
+                  border: "none",
+                  color: "#fff",
+                  cursor: "pointer",
+                  boxShadow: "0 0 20px rgba(220,38,38,0.35)",
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div
         onClick={onClose}
         style={{
@@ -528,7 +652,7 @@ function HistoryDrawer({ open, onClose }) {
               </span>
             )}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {history.length > 0 && (
               <button
                 onClick={toggleAll}
@@ -538,7 +662,7 @@ function HistoryDrawer({ open, onClose }) {
                   gap: 4,
                   fontSize: 11,
                   fontWeight: 500,
-                  padding: "4px 8px",
+                  padding: "4px 10px",
                   borderRadius: 8,
                   background: allSel
                     ? "rgba(124,58,237,0.15)"
@@ -554,7 +678,7 @@ function HistoryDrawer({ open, onClose }) {
             )}
             {selectedIds.size > 0 ? (
               <button
-                onClick={bulkDelete}
+                onClick={handleDeleteSelected}
                 disabled={bulkDeleting}
                 style={{
                   display: "inline-flex",
@@ -564,8 +688,8 @@ function HistoryDrawer({ open, onClose }) {
                   fontWeight: 600,
                   padding: "4px 10px",
                   borderRadius: 8,
-                  background: "rgba(220,38,38,0.15)",
-                  border: "1px solid rgba(220,38,38,0.3)",
+                  background: "rgba(220,38,38,0.12)",
+                  border: "1px solid rgba(220,38,38,0.25)",
                   color: "#f87171",
                   cursor: "pointer",
                 }}
@@ -574,25 +698,35 @@ function HistoryDrawer({ open, onClose }) {
                   <Loader2 size={12} className="animate-spin" />
                 ) : (
                   <Trash2 size={12} />
-                )}{" "}
+                )}
                 Delete ({selectedIds.size})
               </button>
             ) : history.length > 0 ? (
-              <IconBtn
+              <button
                 onClick={handleClearAll}
                 disabled={clearing}
-                title="Clear all"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  padding: "4px 10px",
+                  borderRadius: 8,
+                  background: "rgba(255,255,255,0.04)",
+                  border: `1px solid ${C.border}`,
+                  color: C.textMuted,
+                  cursor: "pointer",
+                }}
               >
                 {clearing ? (
-                  <Loader2 size={15} className="animate-spin" />
+                  <Loader2 size={12} className="animate-spin" />
                 ) : (
-                  <Trash2 size={15} />
+                  <Trash2 size={12} />
                 )}
-              </IconBtn>
+                Clear all
+              </button>
             ) : null}
-            <IconBtn onClick={onClose}>
-              <X size={15} />
-            </IconBtn>
           </div>
         </div>
         {/* List */}
@@ -616,7 +750,7 @@ function HistoryDrawer({ open, onClose }) {
             ) : (
               <div
                 style={{
-                  padding: 12,
+                  padding: "8px 10px",
                   display: "flex",
                   flexDirection: "column",
                   gap: 4,
@@ -632,8 +766,8 @@ function HistoryDrawer({ open, onClose }) {
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 10,
-                        padding: 10,
+                        gap: 8,
+                        padding: "8px 10px",
                         borderRadius: 12,
                         cursor: "pointer",
                         background: isSel
@@ -641,8 +775,9 @@ function HistoryDrawer({ open, onClose }) {
                           : "rgba(255,255,255,0.02)",
                         border: `1px solid ${isSel ? "rgba(124,58,237,0.25)" : C.border}`,
                         transition: "all 0.15s",
+                        width: "100%",
+                        boxSizing: "border-box",
                       }}
-                      className="history-entry"
                     >
                       <div
                         style={{
@@ -697,7 +832,7 @@ function HistoryDrawer({ open, onClose }) {
                           </div>
                         )}
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ flex: 1, minWidth: 0, width: 0 }}>
                         <p
                           style={{
                             fontSize: 12,
@@ -716,29 +851,27 @@ function HistoryDrawer({ open, onClose }) {
                             display: "flex",
                             alignItems: "center",
                             gap: 6,
-                            marginTop: 4,
+                            marginTop: 3,
                           }}
                         >
                           <Badge color={meta.color}>{meta.label}</Badge>
                           {entry.quality && (
-                            <span style={{ fontSize: 10, color: C.textFaint }}>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: C.textFaint,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
                               {entry.quality}
                             </span>
                           )}
-                          <span
-                            style={{
-                              fontSize: 10,
-                              color: "rgba(255,255,255,0.1)",
-                              marginLeft: "auto",
-                            }}
-                          >
-                            {timeAgo(entry.id)}
-                          </span>
                         </div>
                       </div>
                       <div
-                        className="entry-actions"
-                        style={{ display: "flex", gap: 2 }}
+                        style={{ display: "flex", gap: 2, flexShrink: 0 }}
                         onClick={(e) => e.stopPropagation()}
                       >
                         {entry.filePath && (
@@ -752,15 +885,10 @@ function HistoryDrawer({ open, onClose }) {
                           </IconBtn>
                         )}
                         <IconBtn
-                          title="Delete"
-                          disabled={deletingId === entry.id}
-                          onClick={() => handleDeleteEntry(entry)}
+                          title="Remove from history"
+                          onClick={(e) => handleRemoveEntry(e, entry)}
                         >
-                          {deletingId === entry.id ? (
-                            <Loader2 size={13} className="animate-spin" />
-                          ) : (
-                            <X size={13} />
-                          )}
+                          <X size={13} />
                         </IconBtn>
                       </div>
                     </div>
@@ -793,6 +921,7 @@ export default function App() {
   const [selectedContainer, setSelectedContainer] = useState("mp4");
   const [savePath, setSavePath] = useState("");
   const [status, setStatus] = useState("");
+  const [errorStatus, setErrorStatus] = useState("");
   const [progress, setProgress] = useState(0);
   const [smoothProgress, setSmoothProgress] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -844,7 +973,12 @@ export default function App() {
     setLoading(true);
     setVideoInfo(null);
     setStatus("");
+    setErrorStatus("");
     setDone(false);
+    setThumbDone(false);
+    setProgress(0);
+    setSmoothProgress(0);
+    progressRef.current = 0;
     setClipStart("");
     setClipEnd("");
     setBotDetected(false);
@@ -884,7 +1018,7 @@ export default function App() {
       if (err?.message?.includes("AGE_RESTRICTED")) {
         setPendingUrl(u);
         setShowLoginPrompt(true);
-      } else setStatus("Error: " + err.message);
+      } else setErrorStatus("Error: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -894,16 +1028,16 @@ export default function App() {
     setLoggingIn(true);
     setShowLoginPrompt(false);
     setBotDetected(false);
-    setStatus("Waiting for YouTube sign-in...");
+    setErrorStatus("");
     try {
       const ok = await window.electronAPI.openYouTubeLogin();
       if (ok) {
         setCookiesOk(true);
         await fetchInfo(pendingUrl);
         setPendingUrl(null);
-      } else setStatus("Sign-in cancelled or failed.");
+      } else setErrorStatus("Sign-in cancelled or failed.");
     } catch (err) {
-      setStatus("Error: " + err.message);
+      setErrorStatus("Error: " + err.message);
     } finally {
       setLoggingIn(false);
     }
@@ -916,34 +1050,44 @@ export default function App() {
 
   const startDownload = async () => {
     if (!url || !savePath) {
-      setStatus("Please fill in all fields");
+      setErrorStatus("Please fill in all fields");
       return;
     }
     if (!audioOnly && !selectedHeight) {
-      setStatus("Please select a format");
+      setErrorStatus("Please select a format");
       return;
     }
     if (
       (clipStart && !isValidTime(clipStart)) ||
       (clipEnd && !isValidTime(clipEnd))
     ) {
-      setStatus("Invalid time format. Use MM:SS or HH:MM:SS");
+      setErrorStatus("Invalid time format. Use MM:SS or HH:MM:SS");
       return;
     }
     if (clipStart && !clipEnd) {
-      setStatus("Please enter a clip end time.");
+      setErrorStatus("Please enter a clip end time.");
       return;
     }
     if (!clipStart && clipEnd) {
-      setStatus("Please enter a clip start time.");
+      setErrorStatus("Please enter a clip start time.");
       return;
     }
+
+    // If clip covers the entire video, treat as no clip
+    const startS = timeToSecs(clipStart.trim());
+    const endS = timeToSecs(clipEnd.trim());
+    const isFullVideo = duration > 0 && startS === 0 && endS >= duration;
+    const effectiveStart =
+      !clipStart.trim() || isFullVideo ? null : clipStart.trim();
+    const effectiveEnd = !clipEnd.trim() || isFullVideo ? null : clipEnd.trim();
+
+    setErrorStatus("");
     setProgress(0);
     setSmoothProgress(0);
     progressRef.current = 0;
     setDone(false);
     setDownloading(true);
-    setStatus("Starting download...");
+    setStatus("Starting...");
     window.electronAPI.onProgress((pct) => {
       setProgress(pct);
       setStatus("Downloading...");
@@ -971,8 +1115,8 @@ export default function App() {
         container: selectedContainer,
         savePath,
         height: selectedHeight,
-        clipStart: clipStart.trim() || null,
-        clipEnd: clipEnd.trim() || null,
+        clipStart: effectiveStart,
+        clipEnd: effectiveEnd,
         audioOnly,
         audioQuality,
         audioTrackId: audioOnly ? audioTrackId : null,
@@ -982,16 +1126,16 @@ export default function App() {
       setProgress(100);
       setDone(true);
       setStatus(
-        audioOnly
-          ? "Audio downloaded!"
-          : clipStart
-            ? "Clip downloaded!"
-            : "Download complete!",
+        audioOnly ? "Audio saved" : effectiveStart ? "Clip saved" : "Done",
       );
       await window.electronAPI.addHistory({
         title: videoInfo?.title || url,
         thumbnail: videoInfo?.thumbnail || null,
-        type: audioOnly ? "audio" : clipStart && clipEnd ? "clip" : "video",
+        type: audioOnly
+          ? "audio"
+          : effectiveStart && effectiveEnd
+            ? "clip"
+            : "video",
         quality: audioOnly
           ? `${audioContainer.toUpperCase()} · ${audioQuality}kbps`
           : selectedHeight
@@ -1001,10 +1145,9 @@ export default function App() {
         url,
       });
     } catch (err) {
-      setStatus(
-        err.message.includes("cancel")
-          ? "Download cancelled"
-          : "Error: " + err.message,
+      setStatus("");
+      setErrorStatus(
+        err.message.includes("cancel") ? "Cancelled" : "Error: " + err.message,
       );
     } finally {
       setDownloading(false);
@@ -1016,14 +1159,14 @@ export default function App() {
     setProgress(0);
     setSmoothProgress(0);
     progressRef.current = 0;
-    setStatus("Download cancelled");
+    setStatus("");
+    setErrorStatus("Cancelled");
     await window.electronAPI.cancelDownload();
   };
 
   const downloadThumbnail = async () => {
     if (!videoInfo || !savePath) return;
     setThumbDownloading(true);
-    setStatus("Saving thumbnail...");
     try {
       const best = (videoInfo.thumbnails || [])
         .filter((t) => t.url)
@@ -1037,7 +1180,6 @@ export default function App() {
         savePath,
       });
       setThumbDone(true);
-      setStatus("Thumbnail saved!");
       await window.electronAPI.addHistory({
         title: videoInfo.title,
         thumbnail: videoInfo.thumbnail || null,
@@ -1047,7 +1189,7 @@ export default function App() {
         url,
       });
     } catch (err) {
-      setStatus("Error saving thumbnail: " + err.message);
+      setErrorStatus("Error saving thumbnail: " + err.message);
     } finally {
       setThumbDownloading(false);
     }
@@ -1143,24 +1285,29 @@ export default function App() {
           style={{
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
             padding: "10px 24px",
             flexShrink: 0,
             WebkitAppRegion: "drag",
+            position: "relative",
           }}
         >
+          {/* Centre — icon · title · icon */}
           <div
             style={{
+              position: "absolute",
+              left: "50%",
+              transform: "translateX(-50%)",
               display: "flex",
               alignItems: "center",
-              gap: 10,
+              gap: 8,
               userSelect: "none",
+              pointerEvents: "none",
             }}
           >
             <img
               src={iconPng}
               alt=""
-              style={{ width: 32, height: 32, objectFit: "contain" }}
+              style={{ width: 24, height: 24, objectFit: "contain" }}
             />
             <span
               style={{
@@ -1172,13 +1319,22 @@ export default function App() {
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 fontStyle: "italic",
+                whiteSpace: "nowrap",
               }}
             >
               Seedhe Download
             </span>
+            <img
+              src={iconPng}
+              alt=""
+              style={{ width: 24, height: 24, objectFit: "contain" }}
+            />
           </div>
+
+          {/* Right — history + auth */}
           <div
             style={{
+              marginLeft: "auto",
               display: "flex",
               alignItems: "center",
               gap: 8,
@@ -1293,30 +1449,39 @@ export default function App() {
                 </button>
               )}
             </div>
+            {/* Paste & Fetch */}
             <Btn
               onClick={async () => {
-                let u = url;
-                if (!u) {
-                  try {
-                    u = await navigator.clipboard.readText();
+                try {
+                  const u = await navigator.clipboard.readText();
+                  if (u) {
                     setUrl(u);
-                  } catch {}
-                }
-                if (u) fetchInfo(u);
+                    fetchInfo(u);
+                  }
+                } catch {}
               }}
               disabled={loading}
               variant="primary"
-              style={{ minWidth: 110, gap: 6 }}
+              style={{ minWidth: 44, padding: "0 12px" }}
+              title="Paste & Fetch"
             >
               {loading ? (
                 <Loader2 size={15} className="animate-spin" />
-              ) : url ? (
-                "Fetch"
               ) : (
-                <>
-                  <ClipboardPaste size={14} /> Paste & Fetch
-                </>
+                <ClipboardPaste size={15} />
               )}
+            </Btn>
+            {/* Refetch */}
+            <Btn
+              onClick={() => {
+                if (url) fetchInfo(url);
+              }}
+              disabled={!url || loading}
+              variant="ghost"
+              style={{ minWidth: 44, padding: "0 12px" }}
+              title="Refetch"
+            >
+              <RefreshCw size={15} />
             </Btn>
           </div>
 
@@ -1476,7 +1641,7 @@ export default function App() {
                   flexShrink: 0,
                   display: "flex",
                   flexDirection: "column",
-                  gap: 12,
+                  gap: 10,
                 }}
               >
                 <div
@@ -1487,7 +1652,6 @@ export default function App() {
                     aspectRatio: "16/9",
                     position: "relative",
                   }}
-                  className="thumb-wrap"
                 >
                   {videoInfo.thumbnail && (
                     <img
@@ -1500,42 +1664,58 @@ export default function App() {
                       }}
                     />
                   )}
-                  <button
-                    onClick={downloadThumbnail}
-                    disabled={thumbDownloading || !savePath}
-                    className="thumb-overlay"
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      background: "rgba(0,0,0,0.65)",
-                      opacity: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 6,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: "#fff",
-                      cursor: "pointer",
-                      border: "none",
-                      transition: "opacity 0.2s",
-                    }}
-                  >
-                    {thumbDownloading ? (
-                      <Loader2 size={15} className="animate-spin" />
-                    ) : thumbDone ? (
-                      <>
-                        <CheckCircle2 size={15} style={{ color: "#34d399" }} />
-                        Saved
-                      </>
-                    ) : (
-                      <>
-                        <ImageIcon size={15} />
-                        Save thumbnail
-                      </>
-                    )}
-                  </button>
                 </div>
+                {/* Save thumbnail button — always visible */}
+                <button
+                  onClick={downloadThumbnail}
+                  disabled={thumbDownloading || !savePath}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    height: 32,
+                    width: "100%",
+                    borderRadius: 8,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor:
+                      thumbDownloading || !savePath ? "not-allowed" : "pointer",
+                    opacity: !savePath ? 0.4 : 1,
+                    transition: "all 0.15s",
+                    border: `1px solid ${thumbDone ? "rgba(16,185,129,0.3)" : C.border}`,
+                    background: thumbDone ? "rgba(16,185,129,0.1)" : C.surface,
+                    color: thumbDone ? "#34d399" : C.textMuted,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!thumbDone && savePath) {
+                      e.currentTarget.style.borderColor = C.borderHover;
+                      e.currentTarget.style.color = C.textPrimary;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = thumbDone
+                      ? "rgba(16,185,129,0.3)"
+                      : C.border;
+                    e.currentTarget.style.color = thumbDone
+                      ? "#34d399"
+                      : C.textMuted;
+                  }}
+                >
+                  {thumbDownloading ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : thumbDone ? (
+                    <>
+                      <CheckCircle2 size={13} />
+                      Thumbnail saved
+                    </>
+                  ) : (
+                    <>
+                      <ImageIcon size={13} />
+                      Save thumbnail
+                    </>
+                  )}
+                </button>
                 <div>
                   <p
                     style={{
@@ -1615,6 +1795,7 @@ export default function App() {
                 <Tabs.Root
                   value={audioOnly ? "audio" : "video"}
                   onValueChange={(v) => {
+                    if (downloading) return;
                     setAudioOnly(v === "audio");
                     setDone(false);
                   }}
@@ -1627,6 +1808,8 @@ export default function App() {
                       background: C.surface,
                       border: `1px solid ${C.border}`,
                       borderRadius: 12,
+                      opacity: downloading ? 0.4 : 1,
+                      pointerEvents: downloading ? "none" : "auto",
                     }}
                   >
                     {[
@@ -1664,6 +1847,8 @@ export default function App() {
                       display: "grid",
                       gridTemplateColumns: "1fr 1fr",
                       gap: 12,
+                      opacity: downloading ? 0.4 : 1,
+                      pointerEvents: downloading ? "none" : "auto",
                     }}
                   >
                     {[
@@ -1775,6 +1960,8 @@ export default function App() {
                       display: "grid",
                       gridTemplateColumns: "1fr 1fr",
                       gap: 12,
+                      opacity: downloading ? 0.4 : 1,
+                      pointerEvents: downloading ? "none" : "auto",
                     }}
                   >
                     <div
@@ -1864,6 +2051,7 @@ export default function App() {
                         onClick={() => {
                           setClipStart("");
                           setClipEnd("");
+                          setDone(false);
                         }}
                         style={{
                           background: "none",
@@ -1884,20 +2072,42 @@ export default function App() {
                   <div
                     style={{ display: "flex", alignItems: "center", gap: 8 }}
                   >
-                    <div style={{ ...pill(), flex: 1 }}>
+                    <div
+                      style={{
+                        ...pill(),
+                        flex: 1,
+                        opacity: downloading ? 0.4 : 1,
+                        pointerEvents: downloading ? "none" : "auto",
+                      }}
+                    >
                       <Scissors size={13} style={{ color: C.textFaint }} />
                       <input
                         value={clipStart}
-                        onChange={(e) => setClipStart(e.target.value)}
+                        onChange={(e) => {
+                          setClipStart(e.target.value);
+                          setDone(false);
+                          setErrorStatus("");
+                        }}
                         placeholder="0:00"
                         style={{ ...inputBase, fontSize: 12 }}
                       />
                     </div>
                     <span style={{ color: C.textFaint, fontSize: 12 }}>→</span>
-                    <div style={{ ...pill(), flex: 1 }}>
+                    <div
+                      style={{
+                        ...pill(),
+                        flex: 1,
+                        opacity: downloading ? 0.4 : 1,
+                        pointerEvents: downloading ? "none" : "auto",
+                      }}
+                    >
                       <input
                         value={clipEnd}
-                        onChange={(e) => setClipEnd(e.target.value)}
+                        onChange={(e) => {
+                          setClipEnd(e.target.value);
+                          setDone(false);
+                          setErrorStatus("");
+                        }}
                         placeholder={formatDuration(duration) || "0:00"}
                         style={{ ...inputBase, fontSize: 12 }}
                       />
@@ -1908,8 +2118,17 @@ export default function App() {
                       duration={duration}
                       startSecs={sliderStart}
                       endSecs={sliderEnd || duration}
-                      onStartChange={setClipStart}
-                      onEndChange={setClipEnd}
+                      disabled={downloading}
+                      onStartChange={(v) => {
+                        setClipStart(v);
+                        setDone(false);
+                      }}
+                      onEndChange={(v) => {
+                        setClipEnd(v);
+                        setDone(false);
+                        // auto-fill start if empty
+                        if (!clipStart) setClipStart("0:00");
+                      }}
                     />
                   )}
                 </div>
@@ -1921,6 +2140,7 @@ export default function App() {
                   <FieldLabel>Save to</FieldLabel>
                   <button
                     onClick={pickFolder}
+                    disabled={downloading}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -1930,12 +2150,13 @@ export default function App() {
                       background: C.surface,
                       border: `1px solid ${C.border}`,
                       borderRadius: 12,
-                      cursor: "pointer",
+                      cursor: downloading ? "not-allowed" : "pointer",
                       color: C.textMuted,
                       fontSize: 12,
                       textAlign: "left",
                       transition: "border-color 0.15s",
                       width: "100%",
+                      opacity: downloading ? 0.4 : 1,
                     }}
                     onMouseEnter={(e) =>
                       (e.currentTarget.style.borderColor = C.borderHover)
@@ -1969,10 +2190,10 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Progress bar */}
+                {/* Progress bar — only while downloading or done */}
                 {(downloading || done) && (
                   <div
-                    style={{ display: "flex", flexDirection: "column", gap: 6 }}
+                    style={{ display: "flex", flexDirection: "column", gap: 5 }}
                   >
                     <div
                       style={{
@@ -1995,25 +2216,16 @@ export default function App() {
                         }}
                       />
                     </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                      }}
-                    >
+                    {downloading && (
                       <span style={{ fontSize: 11, color: C.textFaint }}>
-                        {status}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontFamily: "monospace",
-                          color: C.textFaint,
-                        }}
-                      >
                         {smoothProgress.toFixed(1)}%
                       </span>
-                    </div>
+                    )}
+                    {done && (
+                      <span style={{ fontSize: 11, color: "#34d399" }}>
+                        {status}
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -2061,19 +2273,29 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Status msg */}
-                {!downloading && !done && status && (
+                {/* Error / info status */}
+                {errorStatus && (
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
                       fontSize: 12,
-                      color: C.textFaint,
+                      color: errorStatus.startsWith("Error")
+                        ? "#f87171"
+                        : C.textFaint,
                     }}
                   >
-                    <AlertCircle size={13} style={{ flexShrink: 0 }} />
-                    {status}
+                    <AlertCircle
+                      size={13}
+                      style={{
+                        flexShrink: 0,
+                        color: errorStatus.startsWith("Error")
+                          ? "#f87171"
+                          : C.textFaint,
+                      }}
+                    />
+                    {errorStatus}
                   </div>
                 )}
               </div>
