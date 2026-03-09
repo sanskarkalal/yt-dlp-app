@@ -150,7 +150,7 @@ function Badge({ children, color = "violet" }) {
     pink: ["rgba(236,72,153,0.12)", "rgba(236,72,153,0.25)", "#f472b6"],
     amber: ["rgba(245,158,11,0.12)", "rgba(245,158,11,0.25)", "#fbbf24"],
     green: ["rgba(16,185,129,0.12)", "rgba(16,185,129,0.25)", "#34d399"],
-    ghost: ["rgba(255,255,255,0.05)", "rgba(255,255,255,0.09)", C.textMuted],
+    ghost: [C.surfaceHigh, C.border, C.textMuted],
   };
   const [bg, border, text] = map[color] || map.ghost;
   return (
@@ -401,7 +401,7 @@ function RangeSlider({
         style={{
           width: "100%",
           height: 3,
-          background: "rgba(255,255,255,0.06)",
+          background: C.border,
           borderRadius: 99,
         }}
       />
@@ -410,7 +410,7 @@ function RangeSlider({
           position: "absolute",
           height: 3,
           borderRadius: 99,
-          background: "linear-gradient(90deg,#7c3aed,#a855f7)",
+          background: C.gradAccent,
           left: `${sPct}%`,
           right: `${100 - ePct}%`,
         }}
@@ -427,7 +427,7 @@ function RangeSlider({
             width: 14,
             height: 14,
             borderRadius: "50%",
-            background: "#a78bfa",
+            background: C.violetLight,
             border: `2px solid ${C.bg}`,
             left: `calc(${p}% - 7px)`,
             zIndex: 2,
@@ -677,7 +677,7 @@ function HistoryDrawer({ open, onClose }) {
                   fontWeight: 600,
                   padding: "2px 6px",
                   borderRadius: 6,
-                  background: "rgba(255,255,255,0.05)",
+                  background: C.surfaceHigh,
                   color: C.textFaint,
                 }}
               >
@@ -697,9 +697,7 @@ function HistoryDrawer({ open, onClose }) {
                   fontWeight: 500,
                   padding: "4px 10px",
                   borderRadius: 8,
-                  background: allSel
-                    ? "rgba(124,58,237,0.15)"
-                    : "rgba(255,255,255,0.04)",
+                  background: allSel ? "rgba(124,58,237,0.15)" : C.surfaceHigh,
                   border: `1px solid ${allSel ? "rgba(124,58,237,0.3)" : C.border}`,
                   color: allSel ? C.violetLight : C.textMuted,
                   cursor: "pointer",
@@ -746,7 +744,7 @@ function HistoryDrawer({ open, onClose }) {
                   fontWeight: 500,
                   padding: "4px 10px",
                   borderRadius: 8,
-                  background: "rgba(255,255,255,0.04)",
+                  background: C.surfaceHigh,
                   border: `1px solid ${C.border}`,
                   color: C.textMuted,
                   cursor: "pointer",
@@ -803,9 +801,7 @@ function HistoryDrawer({ open, onClose }) {
                         padding: "8px 10px",
                         borderRadius: 12,
                         cursor: "pointer",
-                        background: isSel
-                          ? "rgba(124,58,237,0.1)"
-                          : "rgba(255,255,255,0.02)",
+                        background: isSel ? "rgba(124,58,237,0.1)" : C.surface,
                         border: `1px solid ${isSel ? "rgba(124,58,237,0.25)" : C.border}`,
                         transition: "all 0.15s",
                         width: "100%",
@@ -935,7 +931,7 @@ function HistoryDrawer({ open, onClose }) {
             style={{ width: 6, padding: 2 }}
           >
             <ScrollArea.Thumb
-              style={{ background: "rgba(255,255,255,0.1)", borderRadius: 99 }}
+              style={{ background: C.borderHover, borderRadius: 99 }}
             />
           </ScrollArea.Scrollbar>
         </ScrollArea.Root>
@@ -1259,6 +1255,7 @@ export default function App() {
 
   return (
     <ThemeCtx.Provider value={C}>
+      <style>{`input::placeholder { color: ${C.textMuted}; opacity: 1; }`}</style>
       <div
         style={{
           height: "100vh",
@@ -1507,7 +1504,7 @@ export default function App() {
                     }
                   } catch {}
                 }}
-                disabled={loading}
+                disabled={loading || downloading}
                 variant="primary"
                 style={{ minWidth: 44, padding: "0 12px" }}
                 title="Paste & Fetch"
@@ -1523,7 +1520,7 @@ export default function App() {
                 onClick={() => {
                   if (url) fetchInfo(url);
                 }}
-                disabled={!url || loading}
+                disabled={!url || loading || downloading}
                 variant="ghost"
                 style={{ minWidth: 44, padding: "0 12px" }}
                 title="Refetch"
@@ -1806,7 +1803,7 @@ export default function App() {
                         <span
                           style={{
                             fontSize: 11,
-                            color: "rgba(255,255,255,0.12)",
+                            color: C.textFaint,
                             flexShrink: 0,
                           }}
                         >
@@ -1866,28 +1863,36 @@ export default function App() {
                       {[
                         { v: "video", l: "Video", I: Video },
                         { v: "audio", l: "Audio only", I: Music },
-                      ].map(({ v, l, I }) => (
-                        <Tabs.Trigger
-                          key={v}
-                          value={v}
-                          className="tab-trigger"
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 6,
-                            padding: "6px 14px",
-                            borderRadius: 8,
-                            fontSize: 12,
-                            fontWeight: 600,
-                            border: "none",
-                            cursor: "pointer",
-                            transition: "all 0.15s",
-                          }}
-                        >
-                          <I size={13} />
-                          {l}
-                        </Tabs.Trigger>
-                      ))}
+                      ].map(({ v, l, I }) => {
+                        const isActive = (v === "audio") === audioOnly;
+                        return (
+                          <Tabs.Trigger
+                            key={v}
+                            value={v}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "6px 14px",
+                              borderRadius: 8,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              border: isActive
+                                ? `1px solid ${C.borderFocus}`
+                                : "1px solid transparent",
+                              cursor: "pointer",
+                              transition: "all 0.15s",
+                              background: isActive
+                                ? C.surfaceHigh
+                                : "transparent",
+                              color: isActive ? C.violetLight : C.textMuted,
+                            }}
+                          >
+                            <I size={13} />
+                            {l}
+                          </Tabs.Trigger>
+                        );
+                      })}
                     </Tabs.List>
                   </Tabs.Root>
 
@@ -2258,7 +2263,7 @@ export default function App() {
                       <div
                         style={{
                           height: 3,
-                          background: "rgba(255,255,255,0.05)",
+                          background: C.surfaceHigh,
                           borderRadius: 99,
                           overflow: "hidden",
                         }}
