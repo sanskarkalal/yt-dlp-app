@@ -757,13 +757,16 @@ ipcMain.handle("get-video-info", async (_, url) => {
         if (isBotDetected) return resolve({ botDetected: true });
         return reject(new Error(`yt-dlp failed: ${errorOutput.slice(0, 300)}`));
       }
-      try {
-        const data = JSON.parse(output);
-        const normalizeThumbUrl = (u) => {
-          if (!u || typeof u !== "string") return null;
-          const s = u.replace(/&amp;/g, "&");
-          return s.startsWith("//") ? `https:${s}` : s;
-        };
+        try {
+          const data = JSON.parse(output);
+          const normalizeThumbUrl = (u) => {
+            if (!u || typeof u !== "string") return null;
+            const s = u.replace(/&amp;/g, "&").trim();
+            if (!s) return null;
+            if (s.startsWith("//")) return `https:${s}`;
+            if (s.startsWith("http://")) return s.replace(/^http:\/\//i, "https://");
+            return s;
+          };
         const thumbs = Array.isArray(data.thumbnails) ? data.thumbnails : [];
         const bestThumb =
           thumbs

@@ -31,6 +31,15 @@ function timeAgo(ts) {
   return `${day}d ago`;
 }
 
+function normalizeThumbnailUrl(u) {
+  if (!u || typeof u !== "string") return null;
+  const s = u.replace(/&amp;/g, "&").trim();
+  if (!s) return null;
+  if (s.startsWith("//")) return `https:${s}`;
+  if (s.startsWith("http://")) return s.replace(/^http:\/\//i, "https://");
+  return s;
+}
+
 export default function HistoryDrawer({ open, onClose }) {
   const C = useC();
   const [history, setHistory] = useState([]);
@@ -413,9 +422,10 @@ export default function HistoryDrawer({ open, onClose }) {
                           position: "relative",
                         }}
                       >
-                        {entry.thumbnail && !brokenThumbIds.has(entry.id) ? (
+                        {normalizeThumbnailUrl(entry.thumbnail) &&
+                        !brokenThumbIds.has(entry.id) ? (
                           <img
-                            src={entry.thumbnail}
+                            src={normalizeThumbnailUrl(entry.thumbnail)}
                             alt=""
                             onError={() =>
                               setBrokenThumbIds((prev) => new Set(prev).add(entry.id))

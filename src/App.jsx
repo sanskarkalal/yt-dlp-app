@@ -33,20 +33,27 @@ import { Badge, Btn, IconBtn, inputBase, pill } from "./components/ui/Primitives
 
 function normalizeThumbnailUrl(u) {
   if (!u || typeof u !== "string") return null;
-  const s = u.replace(/&amp;/g, "&");
-  return s.startsWith("//") ? `https:${s}` : s;
+  const s = u.replace(/&amp;/g, "&").trim();
+  if (!s) return null;
+  if (s.startsWith("//")) return `https:${s}`;
+  if (s.startsWith("http://")) return s.replace(/^http:\/\//i, "https://");
+  return s;
 }
 
-function getBestThumbnailUrl(info) {
+function getThumbnailCandidates(info) {
   if (!info) return null;
-  const thumbs = Array.isArray(info.thumbnails) ? info.thumbnails : [];
-  const best = thumbs
+  const sortedThumbUrls = (Array.isArray(info.thumbnails) ? info.thumbnails : [])
     .filter((t) => t?.url)
     .sort(
       (a, b) =>
         (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0),
-    )[0]?.url;
-  return normalizeThumbnailUrl(info.thumbnail) || normalizeThumbnailUrl(best);
+    )
+    .map((t) => t.url);
+
+  const candidates = [info.thumbnail, ...sortedThumbUrls]
+    .map(normalizeThumbnailUrl)
+    .filter(Boolean);
+  return [...new Set(candidates)];
 }
 
 export default function App() {
@@ -82,6 +89,7 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [botDetected, setBotDetected] = useState(false);
   const [thumbnailLoadError, setThumbnailLoadError] = useState(false);
+  const [thumbnailCandidateIndex, setThumbnailCandidateIndex] = useState(0);
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
 
@@ -146,7 +154,9 @@ export default function App() {
     estimatedDurationSecs,
     estimateUncertainty,
   );
-  const bestThumbnailUrl = getBestThumbnailUrl(videoInfo);
+  const thumbnailCandidates = getThumbnailCandidates(videoInfo) || [];
+  const bestThumbnailUrl = thumbnailCandidates[0] || null;
+  const activeThumbnailUrl = thumbnailCandidates[thumbnailCandidateIndex] || null;
 
   useEffect(() => {
     progressRef.current = progress;
@@ -172,6 +182,7 @@ export default function App() {
 
   useEffect(() => {
     setThumbnailLoadError(false);
+    setThumbnailCandidateIndex(0);
   }, [bestThumbnailUrl, videoInfo?.title]);
 
   useEffect(() => {
@@ -268,7 +279,7 @@ export default function App() {
     }
   };
 
-  const handleYouTubeLogin = async () => {
+  const handleYouTubeLogin = async (targetUrl = null) => {
     setLoggingIn(true);
     setShowLoginPrompt(false);
     setBotDetected(false);
@@ -277,7 +288,8 @@ export default function App() {
       const ok = await window.electronAPI.openYouTubeLogin();
       if (ok) {
         setCookiesOk(true);
-        await fetchInfo(pendingUrl);
+        const urlToFetch = targetUrl || pendingUrl;
+        if (urlToFetch) await fetchInfo(urlToFetch);
         setPendingUrl(null);
       } else {
         setErrorStatus("Sign-in cancelled or failed.");
@@ -589,14 +601,8 @@ export default function App() {
     if (!videoInfo || !savePath) return;
     setThumbDownloading(true);
     try {
-      const best = (videoInfo.thumbnails || [])
-        .filter((t) => t.url)
-        .sort(
-          (a, b) =>
-            (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0),
-        )[0];
       const fp = await window.electronAPI.downloadThumbnail({
-        thumbnailUrl: normalizeThumbnailUrl(best?.url) || bestThumbnailUrl,
+        thumbnailUrl: activeThumbnailUrl || bestThumbnailUrl,
         title: videoInfo.title,
         savePath,
       });
@@ -785,20 +791,31 @@ export default function App() {
                   />
                   Signed in
                 </button>
-              ) : (
-                <div
-                  style={{
-                    display: "inline-flex",
+                ) : (
+                  <button
+                    disabled={loggingIn}
+                    onClick={() => {
+                      const nextUrl = url || null;
+                      setPendingUrl(nextUrl);
+                      setBotDetected(false);
+                      setShowLoginPrompt(false);
+                      handleYouTubeLogin(nextUrl);
+                    }}
+                    title="Click to sign in"
+                    style={{
+                      display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
                     padding: "5px 10px",
-                    borderRadius: 8,
-                    background: C.surfaceHigh,
-                    border: `1px solid ${C.border}`,
-                    color: C.textFaint,
-                    fontSize: 11,
-                  }}
-                >
+                      borderRadius: 8,
+                      background: C.surfaceHigh,
+                      border: `1px solid ${C.border}`,
+                      color: C.textFaint,
+                      fontSize: 11,
+                      cursor: loggingIn ? "not-allowed" : "pointer",
+                      opacity: loggingIn ? 0.6 : 1,
+                    }}
+                  >
                   <div
                     style={{
                       width: 6,
@@ -808,7 +825,7 @@ export default function App() {
                     }}
                   />
                   Not signed in
-                </div>
+                </button>
               )}
             </div>
           </div>
@@ -839,11 +856,12 @@ export default function App() {
                   <button
                     onClick={() => {
                       setUrl("");
-                      setVideoInfo(null);
-                      setStatus("");
-                      setBotDetected(false);
-                      setShowLoginPrompt(false);
-                    }}
+                        setVideoInfo(null);
+                        setStatus("");
+                        setBotDetected(false);
+                        setShowLoginPrompt(false);
+                        setPendingUrl(null);
+                      }}
                     style={{
                       background: "none",
                       border: "none",
@@ -892,6 +910,36 @@ export default function App() {
                 <RefreshCw size={15} />
               </Btn>
             </div>
+
+            {!cookiesOk && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 8,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  background: C.surface,
+                  border: `1px solid ${C.border}`,
+                }}
+              >
+                <Lock
+                  size={14}
+                  style={{ color: C.textMuted, flexShrink: 0, marginTop: 1 }}
+                />
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    color: C.textFaint,
+                  }}
+                >
+                  Not signed in: some sites may hide higher quality streams,
+                  audio language tracks, subtitles, or full format options.
+                </p>
+              </div>
+            )}
 
             {botDetected && (
               <div
@@ -970,19 +1018,19 @@ export default function App() {
                       color: C.textPrimary,
                       margin: 0,
                     }}
-                  >
-                    Age-restricted content
-                  </p>
-                  <p
+                    >
+                      Age-restricted content
+                    </p>
+                    <p
                     style={{
                       fontSize: 12,
                       color: C.textFaint,
                       margin: "3px 0 0",
                     }}
-                  >
-                    Sign in to your YouTube account to access this video.
-                  </p>
-                </div>
+                    >
+                      Sign in to your YouTube account to access this video.
+                    </p>
+                  </div>
                 <Btn
                   variant="ghost"
                   onClick={handleYouTubeLogin}
@@ -1055,11 +1103,18 @@ export default function App() {
                       position: "relative",
                     }}
                   >
-                    {bestThumbnailUrl && !thumbnailLoadError ? (
+                    {activeThumbnailUrl && !thumbnailLoadError ? (
                       <img
-                        src={bestThumbnailUrl}
+                        src={activeThumbnailUrl}
                         alt=""
-                        onError={() => setThumbnailLoadError(true)}
+                        onError={() => {
+                          const next = thumbnailCandidateIndex + 1;
+                          if (next < thumbnailCandidates.length) {
+                            setThumbnailCandidateIndex(next);
+                          } else {
+                            setThumbnailLoadError(true);
+                          }
+                        }}
                         style={{
                           width: "100%",
                           height: "100%",
