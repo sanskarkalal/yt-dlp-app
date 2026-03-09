@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef, createContext, useContext } from "react";
-import * as Tabs from "@radix-ui/react-tabs";
 import * as Select from "@radix-ui/react-select";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import {
   Download,
   X,
-  FolderOpen,
   Clock,
   CheckCircle2,
   ChevronDown,
@@ -21,14 +19,21 @@ import {
   Trash2,
   CheckSquare,
   Square,
-  AlertCircle,
   ClipboardPaste,
   RefreshCw,
   Sun,
   Moon,
 } from "lucide-react";
 import { cn } from "./lib/utils";
+import {
+  estimateSizeRangeLabel,
+  getAllowedContainers,
+} from "./lib/format-utils";
 import iconPng from "./assets/icon.png";
+import FormatSelectors from "./components/FormatSelectors";
+import ClipControls from "./components/ClipControls";
+import SavePathPicker from "./components/SavePathPicker";
+import DownloadActions from "./components/DownloadActions";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const DARK = {
@@ -90,19 +95,6 @@ function formatDuration(s) {
     return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
-function formatBytes(bytes) {
-  if (bytes == null || Number.isNaN(bytes)) return "";
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-function estimateSizeRangeLabel(kbps, durationSeconds, uncertainty = 0.25) {
-  if (!kbps || !durationSeconds) return null;
-  const baseBytes = Math.round((Number(kbps) * 1000 * Number(durationSeconds)) / 8);
-  const minBytes = Math.round(baseBytes * (1 - uncertainty));
-  const maxBytes = Math.round(baseBytes * (1 + uncertainty));
-  return `${formatBytes(minBytes)}-${formatBytes(maxBytes)}`;
-}
 function timeAgo(ts) {
   const d = Date.now() - ts,
     m = Math.floor(d / 60000),
@@ -112,30 +104,6 @@ function timeAgo(ts) {
   if (m < 60) return `${m}m ago`;
   if (h < 24) return `${h}h ago`;
   return `${day}d ago`;
-}
-
-function getAllowedContainers(format) {
-  if (!format) return ["mp4", "mkv"];
-
-  const uniq = (items) => [...new Set(items.filter(Boolean))];
-
-  const codec = format.codec;
-  const ext = format.ext;
-
-  if (codec === "H264" || codec === "H265") {
-    return ["mp4", "mkv"];
-  }
-
-  if (codec === "VP9" || codec === "AV1") {
-    if (ext === "webm") return uniq(["webm", "mkv", "mp4"]);
-    return uniq(["mkv", "mp4"]);
-  }
-
-  if (ext === "mp4") return ["mp4", "mkv"];
-  if (ext === "webm") return ["webm", "mkv", "mp4"];
-  if (ext === "mkv") return ["mkv", "mp4"];
-
-  return uniq([ext, "mkv", "mp4"]);
 }
 
 // ─── Shared style helpers ─────────────────────────────────────────────────────
@@ -1938,539 +1906,78 @@ export default function App() {
                     minWidth: 0,
                   }}
                 >
-                  <Tabs.Root
-                    value={audioOnly ? "audio" : "video"}
-                    onValueChange={(v) => {
-                      if (downloading) return;
-                      setAudioOnly(v === "audio");
-                      setDone(false);
-                    }}
-                  >
-                    <Tabs.List
-                      style={{
-                        display: "inline-flex",
-                        padding: 4,
-                        gap: 2,
-                        background: C.surface,
-                        border: `1px solid ${C.border}`,
-                        borderRadius: 12,
-                        opacity: downloading ? 0.4 : 1,
-                        pointerEvents: downloading ? "none" : "auto",
-                      }}
-                    >
-                      {[
-                        { v: "video", l: "Video", I: Video },
-                        { v: "audio", l: "Audio only", I: Music },
-                      ].map(({ v, l, I }) => {
-                        const isActive = (v === "audio") === audioOnly;
-                        return (
-                          <Tabs.Trigger
-                            key={v}
-                            value={v}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 6,
-                              padding: "6px 14px",
-                              borderRadius: 8,
-                              fontSize: 12,
-                              fontWeight: 600,
-                              border: isActive
-                                ? `1px solid ${C.borderFocus}`
-                                : "1px solid transparent",
-                              cursor: "pointer",
-                              transition: "all 0.15s",
-                              background: isActive
-                                ? C.surfaceHigh
-                                : "transparent",
-                              color: isActive ? C.violetLight : C.textMuted,
-                            }}
-                          >
-                            <I size={13} />
-                            {l}
-                          </Tabs.Trigger>
-                        );
-                      })}
-                    </Tabs.List>
-                  </Tabs.Root>
+                  <FormatSelectors
+                    C={C}
+                    audioOnly={audioOnly}
+                    setAudioOnly={setAudioOnly}
+                    downloading={downloading}
+                    setDone={setDone}
+                    heights={heights}
+                    selectedHeight={selectedHeight}
+                    raw={raw}
+                    setSelectedHeight={setSelectedHeight}
+                    setSelectedCodec={setSelectedCodec}
+                    setSelectedBitrate={setSelectedBitrate}
+                    setSelectedContainer={setSelectedContainer}
+                    getAllowedContainers={getAllowedContainers}
+                    codecsAtH={codecsAtH}
+                    selectedCodec={selectedCodec}
+                    matchFmts={matchFmts}
+                    selectedBitrate={selectedBitrate}
+                    selectedContainer={selectedContainer}
+                    allowedContainers={allowedContainers}
+                    containerWarning={containerWarning}
+                    FieldLabel={FieldLabel}
+                    SelectField={SelectField}
+                    audioContainer={audioContainer}
+                    setAudioContainer={setAudioContainer}
+                    audioQuality={audioQuality}
+                    setAudioQuality={setAudioQuality}
+                    audioTracks={audioTracks}
+                    audioTrackId={audioTrackId}
+                    setAudioTrackId={setAudioTrackId}
+                  />
 
-                  {!audioOnly && (
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: 12,
-                        opacity: downloading ? 0.4 : 1,
-                        pointerEvents: downloading ? "none" : "auto",
-                      }}
-                    >
-                      {[
-                        {
-                          label: "Resolution",
-                          value: selectedHeight ? String(selectedHeight) : "",
-                          opts: heights.map((h) => ({
-                            value: h,
-                            label: `${h}p`,
-                          })),
-                          onChange: (v) => {
-                            const h = Number(v);
-                            setSelectedHeight(h);
-                            const cs = [
-                              ...new Set(
-                                raw
-                                  .filter((f) => f.height === h)
-                                  .map((f) => f.codec),
-                              ),
-                            ];
-                            setSelectedCodec(cs[0]);
+                  <ClipControls
+                    C={C}
+                    downloading={downloading}
+                    clipStart={clipStart}
+                    setClipStart={setClipStart}
+                    clipEnd={clipEnd}
+                    setClipEnd={setClipEnd}
+                    setDone={setDone}
+                    setErrorStatus={setErrorStatus}
+                    duration={duration}
+                    formatDuration={formatDuration}
+                    RangeSlider={RangeSlider}
+                    sliderStart={sliderStart}
+                    sliderEnd={sliderEnd}
+                    pill={pill}
+                    inputBase={inputBase}
+                    FieldLabel={FieldLabel}
+                  />
 
-                            const brs = raw
-                              .filter(
-                                (f) => f.height === h && f.codec === cs[0],
-                              )
-                              .sort(
-                                (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
-                              );
-                            setSelectedBitrate(brs[0]?.bitrate ?? null);
+                  <SavePathPicker
+                    C={C}
+                    downloading={downloading}
+                    pickFolder={pickFolder}
+                    savePath={savePath}
+                    FieldLabel={FieldLabel}
+                  />
 
-                            const nextFmt = raw.find(
-                              (f) => f.height === h && f.codec === cs[0],
-                            );
-                            const nextContainers =
-                              getAllowedContainers(nextFmt);
-                            setSelectedContainer(nextContainers[0]);
-                            setDone(false);
-                          },
-                        },
-                        {
-                          label: "Codec",
-                          value: selectedCodec || "",
-                          opts: codecsAtH.map((c) => ({ value: c, label: c })),
-                          onChange: (v) => {
-                            setSelectedCodec(v);
-
-                            const brs = raw
-                              .filter(
-                                (f) =>
-                                  f.height === selectedHeight && f.codec === v,
-                              )
-                              .sort(
-                                (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
-                              );
-                            setSelectedBitrate(brs[0]?.bitrate ?? null);
-
-                            const nextFmt = raw.find(
-                              (f) =>
-                                f.height === selectedHeight && f.codec === v,
-                            );
-                            const nextContainers =
-                              getAllowedContainers(nextFmt);
-                            setSelectedContainer(nextContainers[0]);
-                            setDone(false);
-                          },
-                        },
-                        {
-                          label: "Bitrate",
-                          value:
-                            selectedBitrate != null
-                              ? String(selectedBitrate)
-                              : "",
-                          opts: matchFmts.map((f) => ({
-                            value: f.bitrate ?? "",
-                            label: f.bitrate ? `${f.bitrate} kbps` : "Unknown",
-                          })),
-                          onChange: (v) => {
-                            setSelectedBitrate(Number(v));
-                            setDone(false);
-                          },
-                        },
-                        {
-                          label: "Container",
-                          value: selectedContainer,
-                          opts: allowedContainers.map((c) => ({
-                            value: c,
-                            label: c.toUpperCase(),
-                          })),
-                          onChange: (v) => {
-                            setSelectedContainer(v);
-                            setDone(false);
-                          },
-                        },
-                      ].map(({ label, value, opts, onChange }) => (
-                        <div
-                          key={label}
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 6,
-                          }}
-                        >
-                          <FieldLabel>{label}</FieldLabel>
-                          <SelectField
-                            value={value}
-                            onValueChange={onChange}
-                            options={opts}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {!audioOnly && containerWarning && (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        fontSize: 12,
-                        color: "#f59e0b",
-                      }}
-                    >
-                      {containerWarning}
-                    </div>
-                  )}
-
-                  {audioOnly && (
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: 12,
-                        opacity: downloading ? 0.4 : 1,
-                        pointerEvents: downloading ? "none" : "auto",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 6,
-                        }}
-                      >
-                        <FieldLabel>Format</FieldLabel>
-                        <SelectField
-                          value={audioContainer}
-                          onValueChange={(v) => {
-                            setAudioContainer(v);
-                            setDone(false);
-                          }}
-                          options={["mp3", "m4a", "opus", "wav", "flac"].map(
-                            (f) => ({ value: f, label: f.toUpperCase() }),
-                          )}
-                        />
-                      </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 6,
-                        }}
-                      >
-                        <FieldLabel>Quality</FieldLabel>
-                        <SelectField
-                          value={audioQuality}
-                          onValueChange={(v) => {
-                            setAudioQuality(v);
-                            setDone(false);
-                          }}
-                          options={["320", "256", "192", "128", "96"].map(
-                            (q) => ({ value: q, label: `${q} kbps` }),
-                          )}
-                        />
-                      </div>
-                      {audioTracks.length > 1 && (
-                        <div
-                          style={{
-                            gridColumn: "span 2",
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 6,
-                          }}
-                        >
-                          <FieldLabel>Audio track</FieldLabel>
-                          <SelectField
-                            value={audioTrackId}
-                            onValueChange={(v) => {
-                              setAudioTrackId(v);
-                              setDone(false);
-                            }}
-                            options={[
-                              {
-                                value: "bestaudio/best",
-                                label: "Best available",
-                              },
-                              ...audioTracks.map((t) => ({
-                                value: t.format_id,
-                                label: t.label,
-                              })),
-                            ]}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div
-                    style={{ display: "flex", flexDirection: "column", gap: 8 }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <FieldLabel>Clip (optional)</FieldLabel>
-                      {(clipStart || clipEnd) && (
-                        <button
-                          onClick={() => {
-                            setClipStart("");
-                            setClipEnd("");
-                            setDone(false);
-                          }}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            cursor: "pointer",
-                            fontSize: 11,
-                            color: C.textFaint,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 3,
-                          }}
-                        >
-                          <X size={11} />
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                    <div
-                      style={{ display: "flex", alignItems: "center", gap: 8 }}
-                    >
-                      <div
-                        style={{
-                          ...pill(C),
-                          flex: 1,
-                          opacity: downloading ? 0.4 : 1,
-                          pointerEvents: downloading ? "none" : "auto",
-                        }}
-                      >
-                        <Scissors size={13} style={{ color: C.textFaint }} />
-                        <input
-                          value={clipStart}
-                          onChange={(e) => {
-                            setClipStart(e.target.value);
-                            setDone(false);
-                            setErrorStatus("");
-                          }}
-                          placeholder="0:00"
-                          style={{ ...inputBase(C), fontSize: 12 }}
-                        />
-                      </div>
-                      <span style={{ color: C.textFaint, fontSize: 12 }}>
-                        →
-                      </span>
-                      <div
-                        style={{
-                          ...pill(C),
-                          flex: 1,
-                          opacity: downloading ? 0.4 : 1,
-                          pointerEvents: downloading ? "none" : "auto",
-                        }}
-                      >
-                        <input
-                          value={clipEnd}
-                          onChange={(e) => {
-                            setClipEnd(e.target.value);
-                            setDone(false);
-                            setErrorStatus("");
-                          }}
-                          placeholder={formatDuration(duration) || "0:00"}
-                          style={{ ...inputBase(C), fontSize: 12 }}
-                        />
-                      </div>
-                    </div>
-                    {duration > 0 && (
-                      <RangeSlider
-                        duration={duration}
-                        startSecs={sliderStart}
-                        endSecs={sliderEnd || duration}
-                        disabled={downloading}
-                        onStartChange={(v) => {
-                          setClipStart(v);
-                          setDone(false);
-                        }}
-                        onEndChange={(v) => {
-                          setClipEnd(v);
-                          setDone(false);
-                          if (!clipStart) setClipStart("0:00");
-                        }}
-                      />
-                    )}
-                  </div>
-
-                  <div
-                    style={{ display: "flex", flexDirection: "column", gap: 6 }}
-                  >
-                    <FieldLabel>Save to</FieldLabel>
-                    <button
-                      onClick={pickFolder}
-                      disabled={downloading}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        height: 40,
-                        padding: "0 12px",
-                        background: C.surface,
-                        border: `1px solid ${C.border}`,
-                        borderRadius: 12,
-                        cursor: downloading ? "not-allowed" : "pointer",
-                        color: C.textMuted,
-                        fontSize: 12,
-                        textAlign: "left",
-                        transition: "border-color 0.15s",
-                        width: "100%",
-                        opacity: downloading ? 0.4 : 1,
-                      }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.borderColor = C.borderHover)
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.borderColor = C.border)
-                      }
-                    >
-                      <FolderOpen
-                        size={15}
-                        style={{ color: C.textFaint, flexShrink: 0 }}
-                      />
-                      <span
-                        style={{
-                          flex: 1,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {savePath || "Choose folder..."}
-                      </span>
-                      <ChevronDown
-                        size={13}
-                        style={{
-                          color: C.textFaint,
-                          flexShrink: 0,
-                          transform: "rotate(-90deg)",
-                        }}
-                      />
-                    </button>
-                  </div>
-
-                  {(downloading || done) && (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 5,
-                      }}
-                    >
-                      <div
-                        style={{
-                          height: 3,
-                          background: C.surfaceHigh,
-                          borderRadius: 99,
-                          overflow: "hidden",
-                        }}
-                      >
-                        <div
-                          style={{
-                            height: "100%",
-                            borderRadius: 99,
-                            transition: "width 0.15s linear",
-                            width: `${smoothProgress}%`,
-                            background: done ? C.gradSuccess : C.gradAccent,
-                            boxShadow: done
-                              ? "0 0 10px rgba(16,185,129,0.5)"
-                              : C.glowViolet,
-                          }}
-                        />
-                      </div>
-                      {downloading && (
-                        <span style={{ fontSize: 11, color: C.textFaint }}>
-                          {smoothProgress.toFixed(1)}%
-                        </span>
-                      )}
-                      {done && (
-                        <span style={{ fontSize: 11, color: "#34d399" }}>
-                          {status}
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  <div style={{ display: "flex", gap: 8, paddingTop: 2 }}>
-                    {!downloading ? (
-                      <Btn
-                        variant={done ? "success" : "primary"}
-                        onClick={startDownload}
-                        disabled={!savePath || done}
-                        fullWidth
-                      >
-                        {done ? (
-                          <>
-                            <CheckCircle2 size={15} />
-                            Downloaded
-                          </>
-                        ) : (
-                          <>
-                            <Download size={15} />
-                            {dlLabel}
-                          </>
-                        )}
-                      </Btn>
-                    ) : (
-                      <>
-                        <Btn
-                          variant="ghost"
-                          disabled
-                          fullWidth
-                          style={{ flex: 1 }}
-                        >
-                          <Loader2 size={15} className="animate-spin" />
-                          Downloading...
-                        </Btn>
-                        <Btn
-                          variant="danger"
-                          onClick={cancelDownload}
-                          style={{ minWidth: 90 }}
-                        >
-                          <X size={14} />
-                          Cancel
-                        </Btn>
-                      </>
-                    )}
-                  </div>
-
-                  {errorStatus && (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        fontSize: 12,
-                        color: errorStatus.startsWith("Error")
-                          ? "#f87171"
-                          : C.textFaint,
-                      }}
-                    >
-                      <AlertCircle
-                        size={13}
-                        style={{
-                          flexShrink: 0,
-                          color: errorStatus.startsWith("Error")
-                            ? "#f87171"
-                            : C.textFaint,
-                        }}
-                      />
-                      {errorStatus}
-                    </div>
-                  )}
+                  <DownloadActions
+                    C={C}
+                    downloading={downloading}
+                    done={done}
+                    smoothProgress={smoothProgress}
+                    status={status}
+                    startDownload={startDownload}
+                    cancelDownload={cancelDownload}
+                    savePath={savePath}
+                    dlLabel={dlLabel}
+                    errorStatus={errorStatus}
+                    Btn={Btn}
+                  />
                 </div>
               </div>
             )}
@@ -2480,3 +1987,4 @@ export default function App() {
     </ThemeCtx.Provider>
   );
 }
+
