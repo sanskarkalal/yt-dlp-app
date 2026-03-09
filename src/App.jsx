@@ -101,6 +101,28 @@ function timeAgo(ts) {
   return `${day}d ago`;
 }
 
+function getAllowedContainers(format) {
+  if (!format) return ["mp4"];
+
+  const codec = format.codec;
+  const ext = format.ext;
+
+  if (codec === "H264" || codec === "H265") {
+    return ["mp4"];
+  }
+
+  if (codec === "VP9" || codec === "AV1") {
+    if (ext === "webm") return ["webm", "mkv"];
+    return ["mkv"];
+  }
+
+  if (ext === "mp4") return ["mp4"];
+  if (ext === "webm") return ["webm", "mkv"];
+  if (ext === "mkv") return ["mkv"];
+
+  return [ext || "mp4"];
+}
+
 // ─── Shared style helpers ─────────────────────────────────────────────────────
 const pill = (C, extra = {}) => ({
   display: "flex",
@@ -209,6 +231,7 @@ function Btn({
   variant = "primary",
   fullWidth,
   style: sx,
+  title,
 }) {
   const C = useC();
   const [hov, setHov] = useState(false);
@@ -251,6 +274,7 @@ function Btn({
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       style={{ ...base, ...vs[variant], ...sx }}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
@@ -477,7 +501,6 @@ function HistoryDrawer({ open, onClose }) {
     setConfirmDialog({ type: "bulk", count: selectedIds.size });
 
   const confirmDelete = async () => {
-    const dialog = confirmDialog;
     setConfirmDialog(null);
     setBulkDeleting(true);
     for (const e of history.filter((e) => selectedIds.has(e.id))) {
@@ -495,21 +518,23 @@ function HistoryDrawer({ open, onClose }) {
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
+
   const toggleAll = () =>
     selectedIds.size === history.length
       ? setSelectedIds(new Set())
       : setSelectedIds(new Set(history.map((e) => e.id)));
+
   const typeMeta = {
     video: { label: "Video", color: "violet", Icon: Video },
     audio: { label: "Audio", color: "pink", Icon: Music },
     thumbnail: { label: "Thumb", color: "amber", Icon: ImageIcon },
     clip: { label: "Clip", color: "green", Icon: Scissors },
   };
+
   const allSel = history.length > 0 && selectedIds.size === history.length;
 
   return (
     <>
-      {/* Confirmation dialog — centered over entire app */}
       {confirmDialog && (
         <div
           style={{
@@ -653,7 +678,6 @@ function HistoryDrawer({ open, onClose }) {
           boxShadow: open ? "-24px 0 64px rgba(0,0,0,0.5)" : "none",
         }}
       >
-        {/* Header */}
         <div
           style={{
             display: "flex",
@@ -698,7 +722,9 @@ function HistoryDrawer({ open, onClose }) {
                   padding: "4px 10px",
                   borderRadius: 8,
                   background: allSel ? "rgba(124,58,237,0.15)" : C.surfaceHigh,
-                  border: `1px solid ${allSel ? "rgba(124,58,237,0.3)" : C.border}`,
+                  border: `1px solid ${
+                    allSel ? "rgba(124,58,237,0.3)" : C.border
+                  }`,
                   color: allSel ? C.violetLight : C.textMuted,
                   cursor: "pointer",
                 }}
@@ -760,7 +786,7 @@ function HistoryDrawer({ open, onClose }) {
             ) : null}
           </div>
         </div>
-        {/* List */}
+
         <ScrollArea.Root style={{ flex: 1, overflow: "hidden" }}>
           <ScrollArea.Viewport style={{ height: "100%", width: "100%" }}>
             {history.length === 0 ? (
@@ -788,8 +814,9 @@ function HistoryDrawer({ open, onClose }) {
                 }}
               >
                 {history.map((entry) => {
-                  const meta = typeMeta[entry.type] || typeMeta.video,
-                    isSel = selectedIds.has(entry.id);
+                  const meta = typeMeta[entry.type] || typeMeta.video;
+                  const isSel = selectedIds.has(entry.id);
+
                   return (
                     <div
                       key={entry.id}
@@ -802,7 +829,9 @@ function HistoryDrawer({ open, onClose }) {
                         borderRadius: 12,
                         cursor: "pointer",
                         background: isSel ? "rgba(124,58,237,0.1)" : C.surface,
-                        border: `1px solid ${isSel ? "rgba(124,58,237,0.25)" : C.border}`,
+                        border: `1px solid ${
+                          isSel ? "rgba(124,58,237,0.25)" : C.border
+                        }`,
                         transition: "all 0.15s",
                         width: "100%",
                         boxSizing: "border-box",
@@ -979,9 +1008,30 @@ export default function App() {
   const sliderStart = timeToSecs(clipStart) ?? 0;
   const sliderEnd = timeToSecs(clipEnd) ?? duration;
 
+  const raw = videoInfo?.rawFormats || [];
+  const heights = [...new Set(raw.map((f) => f.height))].sort((a, b) => b - a);
+  const codecsAtH = [
+    ...new Set(
+      raw.filter((f) => f.height === selectedHeight).map((f) => f.codec),
+    ),
+  ];
+  const matchFmts = raw
+    .filter((f) => f.height === selectedHeight && f.codec === selectedCodec)
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
+    .filter((f, i, arr) => arr.findIndex((x) => x.bitrate === f.bitrate) === i);
+  const audioTracks = videoInfo?.audioTracks || [];
+  const selRawFmt = raw.find(
+    (f) =>
+      f.height === selectedHeight &&
+      f.codec === selectedCodec &&
+      f.bitrate === selectedBitrate,
+  );
+  const allowedContainers = getAllowedContainers(selRawFmt);
+
   useEffect(() => {
     progressRef.current = progress;
   }, [progress]);
+
   useEffect(() => {
     const animate = () => {
       setSmoothProgress((prev) => {
@@ -993,11 +1043,22 @@ export default function App() {
     animFrameRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animFrameRef.current);
   }, []);
+
   useEffect(() => {
     window.electronAPI.getCookiesStatus().then(setCookiesOk);
     window.electronAPI.getDownloadsPath().then(setSavePath);
     window.electronAPI.onCookiesStatus((ok) => setCookiesOk(ok));
   }, []);
+
+  useEffect(() => {
+    if (
+      !audioOnly &&
+      allowedContainers.length > 0 &&
+      !allowedContainers.includes(selectedContainer)
+    ) {
+      setSelectedContainer(allowedContainers[0]);
+    }
+  }, [audioOnly, allowedContainers, selectedContainer]);
 
   const fetchInfo = async (u) => {
     if (!u) return;
@@ -1040,16 +1101,19 @@ export default function App() {
           .filter((f) => f.height === h && f.codec === codecs[0])
           .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
         setSelectedBitrate(brs[0]?.bitrate ?? null);
-        setSelectedContainer(
-          info.rawFormats.find((f) => f.height === h && f.codec === codecs[0])
-            ?.ext || "mp4",
+
+        const firstFmt = info.rawFormats.find(
+          (f) => f.height === h && f.codec === codecs[0],
         );
+        setSelectedContainer(getAllowedContainers(firstFmt)[0]);
       }
     } catch (err) {
       if (err?.message?.includes("AGE_RESTRICTED")) {
         setPendingUrl(u);
         setShowLoginPrompt(true);
-      } else setErrorStatus("Error: " + err.message);
+      } else {
+        setErrorStatus("Error: " + err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -1066,7 +1130,9 @@ export default function App() {
         setCookiesOk(true);
         await fetchInfo(pendingUrl);
         setPendingUrl(null);
-      } else setErrorStatus("Sign-in cancelled or failed.");
+      } else {
+        setErrorStatus("Sign-in cancelled or failed.");
+      }
     } catch (err) {
       setErrorStatus("Error: " + err.message);
     } finally {
@@ -1104,7 +1170,6 @@ export default function App() {
       return;
     }
 
-    // If clip covers the entire video, treat as no clip
     const startS = timeToSecs(clipStart.trim());
     const endS = timeToSecs(clipEnd.trim());
     const isFullVideo = duration > 0 && startS === 0 && endS >= duration;
@@ -1123,6 +1188,7 @@ export default function App() {
       setProgress(pct);
       setStatus("Downloading...");
     });
+
     try {
       const selRaw = videoInfo?.rawFormats?.find(
         (f) =>
@@ -1141,6 +1207,7 @@ export default function App() {
           ? vfid
           : `${vfid}+bestaudio/best`
         : "bestvideo+bestaudio/best";
+
       const result = await window.electronAPI.download({
         url,
         formatId: fmtId,
@@ -1155,12 +1222,15 @@ export default function App() {
         audioContainer: audioOnly ? audioContainer : null,
         hasMuxedAudio: hasMuxed,
       });
+
       if (result?.cancelled) return;
+
       setProgress(100);
       setDone(true);
       setStatus(
         audioOnly ? "Audio saved" : effectiveStart ? "Clip saved" : "Done",
       );
+
       await window.electronAPI.addHistory({
         title: videoInfo?.title || url,
         thumbnail: videoInfo?.thumbnail || null,
@@ -1228,25 +1298,6 @@ export default function App() {
     }
   };
 
-  const raw = videoInfo?.rawFormats || [];
-  const heights = [...new Set(raw.map((f) => f.height))].sort((a, b) => b - a);
-  const codecsAtH = [
-    ...new Set(
-      raw.filter((f) => f.height === selectedHeight).map((f) => f.codec),
-    ),
-  ];
-  const matchFmts = raw
-    .filter((f) => f.height === selectedHeight && f.codec === selectedCodec)
-    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
-    .filter((f, i, arr) => arr.findIndex((x) => x.bitrate === f.bitrate) === i);
-  const audioTracks = videoInfo?.audioTracks || [];
-  const selRawFmt = raw.find(
-    (f) =>
-      f.height === selectedHeight &&
-      f.codec === selectedCodec &&
-      f.bitrate === selectedBitrate,
-  );
-
   const dlLabel = done
     ? "Downloaded"
     : audioOnly
@@ -1275,7 +1326,6 @@ export default function App() {
           onClose={() => setHistoryOpen(false)}
         />
 
-        {/* Ambient glow */}
         <div
           style={{
             position: "fixed",
@@ -1318,7 +1368,6 @@ export default function App() {
             overflow: "hidden",
           }}
         >
-          {/* Header */}
           <div
             style={{
               display: "grid",
@@ -1330,10 +1379,8 @@ export default function App() {
               background: C.bg,
             }}
           >
-            {/* Left — empty spacer */}
             <div />
 
-            {/* Centre — icon · title · icon */}
             <div
               style={{
                 display: "flex",
@@ -1371,7 +1418,6 @@ export default function App() {
               />
             </div>
 
-            {/* Right — buttons */}
             <div
               style={{
                 display: "flex",
@@ -1451,7 +1497,6 @@ export default function App() {
 
           <div style={{ height: 1, background: C.border, flexShrink: 0 }} />
 
-          {/* Body */}
           <div
             style={{
               flex: 1,
@@ -1463,7 +1508,6 @@ export default function App() {
             }}
             className="scrollbar-hide"
           >
-            {/* URL bar */}
             <div style={{ display: "flex", gap: 8 }}>
               <div style={{ ...pill(C), flex: 1 }}>
                 <input
@@ -1495,7 +1539,7 @@ export default function App() {
                   </button>
                 )}
               </div>
-              {/* Paste & Fetch */}
+
               <Btn
                 onClick={async () => {
                   try {
@@ -1517,7 +1561,7 @@ export default function App() {
                   <ClipboardPaste size={15} />
                 )}
               </Btn>
-              {/* Refetch */}
+
               <Btn
                 onClick={() => {
                   if (url) fetchInfo(url);
@@ -1531,7 +1575,6 @@ export default function App() {
               </Btn>
             </div>
 
-            {/* Bot detected */}
             {botDetected && (
               <div
                 style={{
@@ -1585,7 +1628,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Age restricted */}
             {showLoginPrompt && (
               <div
                 style={{
@@ -1639,7 +1681,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Empty state */}
             {!videoInfo && !loading && !showLoginPrompt && !botDetected && (
               <div
                 style={{
@@ -1660,7 +1701,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Loading */}
             {loading && (
               <div
                 style={{
@@ -1677,10 +1717,8 @@ export default function App() {
               </div>
             )}
 
-            {/* Main UI */}
             {videoInfo && (
               <div style={{ display: "flex", gap: 20 }}>
-                {/* Thumbnail col */}
                 <div
                   style={{
                     width: 200,
@@ -1711,7 +1749,7 @@ export default function App() {
                       />
                     )}
                   </div>
-                  {/* Save thumbnail button — always visible */}
+
                   <button
                     onClick={downloadThumbnail}
                     disabled={thumbDownloading || !savePath}
@@ -1731,7 +1769,9 @@ export default function App() {
                           : "pointer",
                       opacity: !savePath ? 0.4 : 1,
                       transition: "all 0.15s",
-                      border: `1px solid ${thumbDone ? "rgba(16,185,129,0.3)" : C.border}`,
+                      border: `1px solid ${
+                        thumbDone ? "rgba(16,185,129,0.3)" : C.border
+                      }`,
                       background: thumbDone
                         ? "rgba(16,185,129,0.1)"
                         : C.surface,
@@ -1766,6 +1806,7 @@ export default function App() {
                       </>
                     )}
                   </button>
+
                   <div>
                     <p
                       style={{
@@ -1814,6 +1855,7 @@ export default function App() {
                       )}
                     </div>
                   </div>
+
                   {!audioOnly && selRawFmt && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                       {selRawFmt.width && (
@@ -1831,7 +1873,6 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Controls col */}
                 <div
                   style={{
                     flex: 1,
@@ -1841,7 +1882,6 @@ export default function App() {
                     minWidth: 0,
                   }}
                 >
-                  {/* Video/Audio tabs */}
                   <Tabs.Root
                     value={audioOnly ? "audio" : "video"}
                     onValueChange={(v) => {
@@ -1898,7 +1938,6 @@ export default function App() {
                     </Tabs.List>
                   </Tabs.Root>
 
-                  {/* Video format grid */}
                   {!audioOnly && (
                     <div
                       style={{
@@ -1928,6 +1967,7 @@ export default function App() {
                               ),
                             ];
                             setSelectedCodec(cs[0]);
+
                             const brs = raw
                               .filter(
                                 (f) => f.height === h && f.codec === cs[0],
@@ -1936,11 +1976,13 @@ export default function App() {
                                 (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
                               );
                             setSelectedBitrate(brs[0]?.bitrate ?? null);
-                            setSelectedContainer(
-                              raw.find(
-                                (f) => f.height === h && f.codec === cs[0],
-                              )?.ext || "mp4",
+
+                            const nextFmt = raw.find(
+                              (f) => f.height === h && f.codec === cs[0],
                             );
+                            const nextContainers =
+                              getAllowedContainers(nextFmt);
+                            setSelectedContainer(nextContainers[0]);
                             setDone(false);
                           },
                         },
@@ -1950,6 +1992,7 @@ export default function App() {
                           opts: codecsAtH.map((c) => ({ value: c, label: c })),
                           onChange: (v) => {
                             setSelectedCodec(v);
+
                             const brs = raw
                               .filter(
                                 (f) =>
@@ -1959,12 +2002,14 @@ export default function App() {
                                 (a, b) => (b.bitrate || 0) - (a.bitrate || 0),
                               );
                             setSelectedBitrate(brs[0]?.bitrate ?? null);
-                            setSelectedContainer(
-                              raw.find(
-                                (f) =>
-                                  f.height === selectedHeight && f.codec === v,
-                              )?.ext || "mp4",
+
+                            const nextFmt = raw.find(
+                              (f) =>
+                                f.height === selectedHeight && f.codec === v,
                             );
+                            const nextContainers =
+                              getAllowedContainers(nextFmt);
+                            setSelectedContainer(nextContainers[0]);
                             setDone(false);
                           },
                         },
@@ -1986,9 +2031,10 @@ export default function App() {
                         {
                           label: "Container",
                           value: selectedContainer,
-                          opts: (
-                            videoInfo.availableContainers || ["mp4", "mkv"]
-                          ).map((c) => ({ value: c, label: c.toUpperCase() })),
+                          opts: allowedContainers.map((c) => ({
+                            value: c,
+                            label: c.toUpperCase(),
+                          })),
                           onChange: (v) => {
                             setSelectedContainer(v);
                             setDone(false);
@@ -2014,7 +2060,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Audio format grid */}
                   {audioOnly && (
                     <div
                       style={{
@@ -2095,7 +2140,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Clip */}
                   <div
                     style={{ display: "flex", flexDirection: "column", gap: 8 }}
                   >
@@ -2189,14 +2233,12 @@ export default function App() {
                         onEndChange={(v) => {
                           setClipEnd(v);
                           setDone(false);
-                          // auto-fill start if empty
                           if (!clipStart) setClipStart("0:00");
                         }}
                       />
                     )}
                   </div>
 
-                  {/* Save path */}
                   <div
                     style={{ display: "flex", flexDirection: "column", gap: 6 }}
                   >
@@ -2253,7 +2295,6 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Progress bar — only while downloading or done */}
                   {(downloading || done) && (
                     <div
                       style={{
@@ -2296,7 +2337,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Download / Cancel */}
                   <div style={{ display: "flex", gap: 8, paddingTop: 2 }}>
                     {!downloading ? (
                       <Btn
@@ -2340,7 +2380,6 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Error / info status */}
                   {errorStatus && (
                     <div
                       style={{

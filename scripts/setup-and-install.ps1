@@ -75,10 +75,12 @@ else {
   Write-Host "==> yt-dlp already up to date ($currentYtDlp)"
 }
 
-# ── ffmpeg ───────────────────────────────────────────────────────────────────
+# ── ffmpeg / ffprobe ─────────────────────────────────────────────────────────
 $ffmpegPath = Join-Path $winBinDir "ffmpeg.exe"
-if ($ForceDownload -or -not (Test-Path $ffmpegPath)) {
-  Write-Host "==> Downloading ffmpeg"
+$ffprobePath = Join-Path $winBinDir "ffprobe.exe"
+
+if ($ForceDownload -or -not (Test-Path $ffmpegPath) -or -not (Test-Path $ffprobePath)) {
+  Write-Host "==> Downloading ffmpeg bundle (ffmpeg + ffprobe)"
   $zipPath = Join-Path $env:TEMP "ffmpeg-master-latest-win64-gpl.zip"
   $extractDir = Join-Path $env:TEMP "ffmpeg_extract_$([Guid]::NewGuid().ToString('N'))"
 
@@ -86,18 +88,36 @@ if ($ForceDownload -or -not (Test-Path $ffmpegPath)) {
   Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
 
   $foundFfmpeg = Get-ChildItem -Path $extractDir -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+  $foundFfprobe = Get-ChildItem -Path $extractDir -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
+
   if (-not $foundFfmpeg) {
     throw "ffmpeg.exe was not found in extracted archive"
   }
 
+  if (-not $foundFfprobe) {
+    throw "ffprobe.exe was not found in extracted archive"
+  }
+
   Copy-Item $foundFfmpeg.FullName $ffmpegPath -Force
+  Copy-Item $foundFfprobe.FullName $ffprobePath -Force
 
   Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
   Remove-Item -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 else {
-  Write-Host "==> ffmpeg already present, skipping download"
+  Write-Host "==> ffmpeg and ffprobe already present, skipping download"
 }
+
+Write-Host "==> Verifying bundled binaries"
+if (-not (Test-Path $ffmpegPath)) {
+  throw "ffmpeg.exe is missing from resources\bin\win"
+}
+if (-not (Test-Path $ffprobePath)) {
+  throw "ffprobe.exe is missing from resources\bin\win"
+}
+
+Write-Host "     ffmpeg  : $ffmpegPath"
+Write-Host "     ffprobe : $ffprobePath"
 
 Write-Host "==> Building Windows installer"
 npm run dist:win
