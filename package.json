@@ -21,6 +21,7 @@
     "appId": "com.ytdlp.app",
     "productName": "seedhe download by sanskar",
     "afterPack": "scripts/after-pack.cjs",
+    "afterSign": "scripts/notarize.cjs",
     "directories": {
       "output": "release"
     },
@@ -40,8 +41,10 @@
       ],
       "category": "public.app-category.utilities",
       "icon": "build/icon.icns",
-      "hardenedRuntime": false,
-      "identity": null
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "win": {
       "target": "nsis"

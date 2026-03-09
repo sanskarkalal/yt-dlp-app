@@ -280,6 +280,144 @@ function downloadFile(url, destPath) {
   });
 }
 
+function fetchGitHubReleaseByTag(tag) {
+  return new Promise((resolve) => {
+    const options = {
+      hostname: "api.github.com",
+      path: `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/tags/${encodeURIComponent(tag)}`,
+      headers: { "User-Agent": "seedhe-download-app" },
+    };
+    const req = https.get(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => {
+        if (res.statusCode !== 200) return resolve(null);
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on("error", () => resolve(null));
+    req.setTimeout(15000, () => {
+      req.destroy();
+      resolve(null);
+    });
+  });
+}
+
+function pickMacDmgAsset(release) {
+  const assets = Array.isArray(release?.assets) ? release.assets : [];
+  const dmgAssets = assets.filter(
+    (a) =>
+      typeof a?.name === "string" &&
+      a.name.toLowerCase().endsWith(".dmg") &&
+      typeof a?.browser_download_url === "string",
+  );
+  if (!dmgAssets.length) return null;
+
+  const arch = process.arch === "arm64" ? "arm64" : "x64";
+  return (
+    dmgAssets.find((a) => a.name.toLowerCase().includes(arch)) ||
+    (arch === "arm64"
+      ? dmgAssets.find((a) => a.name.toLowerCase().includes("universal"))
+      : null) ||
+    dmgAssets[0]
+  );
+}
+
+function getMacInstallerScript() {
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+DMG_PATH="$1"
+APP_DEST="$2"
+APP_PID="$3"
+MOUNT_POINT="$(mktemp -d /tmp/seedhe-update-mount.XXXXXX)"
+
+cleanup() {
+  hdiutil detach "$MOUNT_POINT" -quiet >/dev/null 2>&1 || true
+  rmdir "$MOUNT_POINT" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+while kill -0 "$APP_PID" >/dev/null 2>&1; do
+  sleep 1
+done
+
+hdiutil attach "$DMG_PATH" -nobrowse -mountpoint "$MOUNT_POINT" -quiet
+APP_SRC="$(find "$MOUNT_POINT" -maxdepth 1 -name "*.app" -print -quit)"
+if [[ -z "\${APP_SRC:-}" ]]; then
+  echo "No .app bundle found in DMG"
+  exit 1
+fi
+
+if rm -rf "$APP_DEST" && ditto "$APP_SRC" "$APP_DEST"; then
+  true
+else
+  osascript <<'APPLESCRIPT' "$APP_SRC" "$APP_DEST"
+on run argv
+  set appSrc to item 1 of argv
+  set appDst to item 2 of argv
+  set cmd to "rm -rf " & quoted form of appDst & " && ditto " & quoted form of appSrc & " " & quoted form of appDst
+  do shell script cmd with administrator privileges
+end run
+APPLESCRIPT
+fi
+
+xattr -dr com.apple.quarantine "$APP_DEST" || true
+open -n "$APP_DEST"
+`;
+}
+
+async function installDownloadedMacUpdate(version) {
+  const releaseVersion = String(version || "").trim();
+  if (!releaseVersion) throw new Error("Missing update version");
+
+  pushAppUpdateState({
+    status: "installing",
+    message: "Preparing macOS installer...",
+  });
+
+  const release = await fetchGitHubReleaseByTag(`v${releaseVersion}`);
+  if (!release) {
+    throw new Error(`Could not fetch release metadata for v${releaseVersion}`);
+  }
+
+  const dmgAsset = pickMacDmgAsset(release);
+  if (!dmgAsset) throw new Error("No macOS DMG asset found for this release");
+
+  const tempDir = path.join(app.getPath("temp"), "seedhe-updater");
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+  const dmgPath = path.join(tempDir, String(dmgAsset.name).replace(/\s+/g, "-"));
+
+  pushAppUpdateState({
+    status: "installing",
+    message: `Downloading installer ${releaseVersion}...`,
+  });
+  await downloadFile(dmgAsset.browser_download_url, dmgPath);
+
+  const scriptPath = path.join(tempDir, "install-mac-update.sh");
+  fs.writeFileSync(scriptPath, getMacInstallerScript(), "utf8");
+  fs.chmodSync(scriptPath, 0o755);
+
+  const appBundlePath = path.resolve(process.execPath, "../../..");
+  const appBundleName = path.basename(appBundlePath);
+  const targetAppPath = path.join("/Applications", appBundleName);
+
+  spawn("bash", [scriptPath, dmgPath, targetAppPath, String(process.pid)], {
+    detached: true,
+    stdio: "ignore",
+  }).unref();
+
+  pushAppUpdateState({
+    status: "installing",
+    message: "Installing update and restarting...",
+  });
+  app.quit();
+}
+
 function buildRequestHeaders(url, isImage = false) {
   let host = "";
   try {
@@ -536,16 +674,45 @@ function initAppAutoUpdater() {
   });
 
   autoUpdater.on("update-downloaded", async (info) => {
+    const nextVersion = info?.version || app.getVersion();
     pushAppUpdateState({
       status: "downloaded",
-      message: `Version ${info?.version || "latest"} is ready. Restart to install.`,
+      message: `Version ${nextVersion} is ready. Restart to install.`,
       updateAvailable: true,
       updateDownloaded: true,
       progress: 100,
-      version: info?.version || app.getVersion(),
+      version: nextVersion,
     });
 
     if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (isMac) {
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: "info",
+        buttons: ["Install now", "Later"],
+        defaultId: 0,
+        cancelId: 1,
+        title: "Update ready",
+        message: "A new version has been downloaded.",
+        detail:
+          "Install now will replace the app in /Applications and relaunch it.",
+      });
+      if (result.response === 0) {
+        try {
+          await installDownloadedMacUpdate(nextVersion);
+        } catch (err) {
+          const releaseUrl = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/tag/v${nextVersion}`;
+          pushAppUpdateState({
+            status: "error",
+            message:
+              err?.message ||
+              "Install failed. Open the release page and install manually.",
+          });
+          shell.openExternal(releaseUrl);
+        }
+      }
+      return;
+    }
+
     const result = await dialog.showMessageBox(mainWindow, {
       type: "info",
       buttons: ["Restart now", "Later"],
@@ -985,6 +1152,17 @@ ipcMain.handle("check-for-app-update", async () => checkForAppUpdate());
 
 ipcMain.handle("install-app-update", () => {
   if (!appUpdateState.updateDownloaded) return false;
+  if (isMac) {
+    installDownloadedMacUpdate(appUpdateState.version).catch((err) => {
+      pushAppUpdateState({
+        status: "error",
+        message:
+          err?.message ||
+          "Install failed. Open the latest release and install manually.",
+      });
+    });
+    return true;
+  }
   autoUpdater.quitAndInstall(false, true);
   return true;
 });

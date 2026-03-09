@@ -41,16 +41,9 @@ No extra steps needed.
 
 1. Download the `.dmg` file
 2. Open it and drag the app into `/Applications`
-3. **Before opening**, run this command in Terminal:
+3. Open the app — done ✅
 
-```bash
-xattr -dr com.apple.quarantine "/Applications/seedhe download by sanskar.app"
-```
-
-4. Open the app — done ✅
-
-> **Why is this needed?**  
-> macOS Gatekeeper flags apps that aren't Apple-notarized. This command removes that quarantine flag. The app itself is safe — it's just not signed with an Apple developer certificate.
+> If you are testing an unsigned local build, Gatekeeper may block launch until you remove quarantine manually.
 
 ---
 
@@ -176,6 +169,14 @@ Set a GitHub token in your shell:
 
 ```bash
 export GH_TOKEN=your_github_token
+```
+
+For signed/notarized macOS builds, also set:
+
+```bash
+export APPLE_ID=your_apple_id@example.com
+export APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx
+export APPLE_TEAM_ID=YOURTEAMID
 ```
 
 Then publish from the platform you are building:
