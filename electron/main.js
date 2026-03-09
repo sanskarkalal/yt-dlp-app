@@ -265,6 +265,95 @@ function downloadFile(url, destPath) {
   });
 }
 
+function buildRequestHeaders(url, isImage = false) {
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    host = "";
+  }
+  const headers = {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+  };
+  if (isImage) headers.Accept = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8";
+
+  const needsYouTubeReferer =
+    host.includes("ytimg.com") ||
+    host.includes("youtube.com") ||
+    host.includes("googlevideo.com") ||
+    host.includes("ggpht.com");
+  if (needsYouTubeReferer) headers.Referer = "https://www.youtube.com/";
+  return headers;
+}
+
+function extFromContentType(contentType) {
+  const ct = String(contentType || "").toLowerCase();
+  if (ct.includes("jpeg") || ct.includes("jpg")) return ".jpg";
+  if (ct.includes("png")) return ".png";
+  if (ct.includes("webp")) return ".webp";
+  if (ct.includes("gif")) return ".gif";
+  if (ct.includes("bmp")) return ".bmp";
+  if (ct.includes("avif")) return ".avif";
+  return ".jpg";
+}
+
+function fetchImageBuffer(url, redirectsLeft = 5) {
+  return new Promise((resolve, reject) => {
+    const client = String(url || "").startsWith("https") ? https : http;
+    const req = client.get(
+      url,
+      { headers: buildRequestHeaders(url, true) },
+      (res) => {
+        const statusCode = Number(res.statusCode || 0);
+        const location = res.headers.location;
+        if (
+          statusCode >= 300 &&
+          statusCode < 400 &&
+          location &&
+          redirectsLeft > 0
+        ) {
+          res.resume();
+          const nextUrl = new URL(location, url).toString();
+          return fetchImageBuffer(nextUrl, redirectsLeft - 1)
+            .then(resolve)
+            .catch(reject);
+        }
+        if (statusCode !== 200) {
+          res.resume();
+          return reject(new Error(`Thumbnail HTTP ${statusCode}`));
+        }
+
+        const contentType = String(res.headers["content-type"] || "");
+        if (!contentType.toLowerCase().startsWith("image/")) {
+          res.resume();
+          return reject(new Error(`Thumbnail is not an image (${contentType || "unknown"})`));
+        }
+
+        const chunks = [];
+        let totalBytes = 0;
+        const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+        res.on("data", (chunk) => {
+          totalBytes += chunk.length;
+          if (totalBytes > MAX_IMAGE_BYTES) {
+            req.destroy(new Error("Thumbnail too large"));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        res.on("end", () =>
+          resolve({
+            buffer: Buffer.concat(chunks),
+            contentType,
+          }),
+        );
+      },
+    );
+    req.on("error", reject);
+    req.setTimeout(30000, () => req.destroy(new Error("Thumbnail download timed out")));
+  });
+}
+
 async function checkAndUpdateYtDlp() {
   try {
     const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -567,6 +656,24 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
+
+  // Some thumbnail CDNs block requests without browser-like headers.
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: ["http://*/*", "https://*/*"] },
+    (details, callback) => {
+      const reqHeaders = { ...(details.requestHeaders || {}) };
+      if (details.resourceType === "image") {
+        if (!reqHeaders["User-Agent"] && !reqHeaders["user-agent"]) {
+          reqHeaders["User-Agent"] = buildRequestHeaders(details.url)["User-Agent"];
+        }
+        if (!reqHeaders.Referer && !reqHeaders.referer) {
+          const referer = buildRequestHeaders(details.url).Referer;
+          if (referer) reqHeaders.Referer = referer;
+        }
+      }
+      callback({ requestHeaders: reqHeaders });
+    },
+  );
 
   return mainWindow;
 }
@@ -914,38 +1021,19 @@ ipcMain.handle("get-downloads-path", () =>
 ipcMain.handle(
   "download-thumbnail",
   async (_, { thumbnailUrl, title, savePath }) => {
-    return new Promise((resolve, reject) => {
-      const sanitized = sanitizeFilename(title);
-      const dest = getUniqueFilePath(path.join(savePath, `${sanitized}.jpg`));
+    if (!thumbnailUrl) throw new Error("No thumbnail URL");
+    if (!savePath || !fs.existsSync(savePath))
+      throw new Error("Save path does not exist");
 
-      const doDownload = (url) => {
-        const client = url.startsWith("https") ? https : http;
-        const file = fs.createWriteStream(dest);
-        client
-          .get(url, (res) => {
-            if (
-              res.statusCode >= 300 &&
-              res.statusCode < 400 &&
-              res.headers.location
-            ) {
-              file.close();
-              fs.unlink(dest, () => {});
-              return doDownload(res.headers.location);
-            }
-            res.pipe(file);
-            file.on("finish", () => {
-              file.close();
-              resolve(dest);
-            });
-          })
-          .on("error", (err) => {
-            fs.unlink(dest, () => {});
-            reject(err);
-          });
-      };
+    const { buffer, contentType } = await fetchImageBuffer(thumbnailUrl);
+    const sanitized = sanitizeFilename(title);
+    const ext = extFromContentType(contentType);
+    const dest = getUniqueFilePath(path.join(savePath, `${sanitized}${ext}`));
+    const tempDest = `${dest}.tmp`;
 
-      doDownload(thumbnailUrl);
-    });
+    fs.writeFileSync(tempDest, buffer);
+    fs.renameSync(tempDest, dest);
+    return dest;
   },
 );
 
@@ -1380,4 +1468,3 @@ ipcMain.handle("delete-file", (_, filePath) => {
   }
   return true;
 });
-
