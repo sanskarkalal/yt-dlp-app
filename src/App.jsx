@@ -90,6 +90,19 @@ function formatDuration(s) {
     return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
+function formatBytes(bytes) {
+  if (bytes == null || Number.isNaN(bytes)) return "";
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+function estimateSizeRangeLabel(kbps, durationSeconds, uncertainty = 0.25) {
+  if (!kbps || !durationSeconds) return null;
+  const baseBytes = Math.round((Number(kbps) * 1000 * Number(durationSeconds)) / 8);
+  const minBytes = Math.round(baseBytes * (1 - uncertainty));
+  const maxBytes = Math.round(baseBytes * (1 + uncertainty));
+  return `${formatBytes(minBytes)}-${formatBytes(maxBytes)}`;
+}
 function timeAgo(ts) {
   const d = Date.now() - ts,
     m = Math.floor(d / 60000),
@@ -102,25 +115,27 @@ function timeAgo(ts) {
 }
 
 function getAllowedContainers(format) {
-  if (!format) return ["mp4"];
+  if (!format) return ["mp4", "mkv"];
+
+  const uniq = (items) => [...new Set(items.filter(Boolean))];
 
   const codec = format.codec;
   const ext = format.ext;
 
   if (codec === "H264" || codec === "H265") {
-    return ["mp4"];
+    return ["mp4", "mkv"];
   }
 
   if (codec === "VP9" || codec === "AV1") {
-    if (ext === "webm") return ["webm", "mkv"];
-    return ["mkv"];
+    if (ext === "webm") return uniq(["webm", "mkv", "mp4"]);
+    return uniq(["mkv", "mp4"]);
   }
 
-  if (ext === "mp4") return ["mp4"];
-  if (ext === "webm") return ["webm", "mkv"];
-  if (ext === "mkv") return ["mkv"];
+  if (ext === "mp4") return ["mp4", "mkv"];
+  if (ext === "webm") return ["webm", "mkv", "mp4"];
+  if (ext === "mkv") return ["mkv", "mp4"];
 
-  return [ext || "mp4"];
+  return uniq([ext, "mkv", "mp4"]);
 }
 
 // ─── Shared style helpers ─────────────────────────────────────────────────────
@@ -1027,6 +1042,44 @@ export default function App() {
       f.bitrate === selectedBitrate,
   );
   const allowedContainers = getAllowedContainers(selRawFmt);
+  const showMp4Warning =
+    !audioOnly &&
+    selectedContainer === "mp4" &&
+    (selectedCodec === "VP9" || selectedCodec === "AV1");
+  const showMkvWarning =
+    !audioOnly &&
+    selectedContainer === "mkv" &&
+    (selectedCodec === "H264" || selectedCodec === "H265");
+  const containerWarning = showMp4Warning
+    ? "MP4 is available for this codec, but compatibility may be lower. MKV is generally more reliable."
+    : showMkvWarning
+      ? "MKV works, but MP4 is usually the most compatible choice for H264/H265."
+      : null;
+  const clipStartSecs = timeToSecs(clipStart);
+  const clipEndSecs = timeToSecs(clipEnd);
+  const estimatedDurationSecs =
+    duration > 0 && clipStartSecs != null && clipEndSecs != null
+      ? Math.max(
+          0,
+          Math.min(duration, clipEndSecs) - Math.max(0, clipStartSecs),
+        )
+      : duration > 0
+        ? duration
+        : null;
+  const bestAudioAbr = Math.max(
+    ...audioTracks.map((t) => t.abr || 0),
+    0,
+  );
+  const estimatedAudioKbps = selRawFmt?.hasMuxedAudio
+    ? 0
+    : bestAudioAbr || 128;
+  const estimatedTotalKbps = (selRawFmt?.bitrate || 0) + estimatedAudioKbps;
+  const estimateUncertainty = selRawFmt?.hasMuxedAudio ? 0.22 : 0.3;
+  const estimatedSizeLabel = estimateSizeRangeLabel(
+    estimatedTotalKbps,
+    estimatedDurationSecs,
+    estimateUncertainty,
+  );
 
   useEffect(() => {
     progressRef.current = progress;
@@ -1866,6 +1919,9 @@ export default function App() {
                       {selRawFmt.fps >= 60 && (
                         <Badge color="violet">{selRawFmt.fps}fps</Badge>
                       )}
+                      {estimatedSizeLabel && (
+                        <Badge color="ghost">~{estimatedSizeLabel}</Badge>
+                      )}
                       {!selRawFmt.hasMuxedAudio && (
                         <Badge color="ghost">+audio</Badge>
                       )}
@@ -2057,6 +2113,17 @@ export default function App() {
                           />
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {!audioOnly && containerWarning && (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        fontSize: 12,
+                        color: "#f59e0b",
+                      }}
+                    >
+                      {containerWarning}
                     </div>
                   )}
 
