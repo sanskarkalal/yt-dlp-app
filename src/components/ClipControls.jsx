@@ -98,6 +98,9 @@ export default function ClipControls({
           disabled={downloading}
           onStartChange={(v) => {
             setClipStart(v);
+            if (!String(clipEnd || "").trim()) {
+              setClipEnd(formatDuration(duration) || "0:00");
+            }
             setDone(false);
           }}
           onEndChange={(v) => {
