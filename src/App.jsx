@@ -797,7 +797,7 @@ export default function App() {
                   whiteSpace: "nowrap",
                 }}
               >
-                Seedhe Download by Sanskar
+                Seedhe Download by Sanskardotexe
               </span>
               <img
                 src={iconPng}
