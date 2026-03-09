@@ -1,4 +1,5 @@
 import { Scissors, X } from "lucide-react";
+import { FieldLabel, RangeSlider, inputBase, pill } from "./ui/Primitives";
 
 export default function ClipControls({
   C,
@@ -11,12 +12,8 @@ export default function ClipControls({
   setErrorStatus,
   duration,
   formatDuration,
-  RangeSlider,
   sliderStart,
   sliderEnd,
-  pill,
-  inputBase,
-  FieldLabel,
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

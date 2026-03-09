@@ -43,15 +43,24 @@ function getUniqueFilePath(filePath) {
 }
 
 function sanitizeFilename(name) {
-  return name
+  let s = name
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\x20-\x7E]/g, "_")
-    .replace(/[/\\?%*:|"<>｜⧸／＼]/g, "_")
+    .replace(/[^\x20-\x7E]/g, "_");
+
+  s = s
+    .replace(/[^A-Za-z0-9._()\- ]/g, "_")
+    .replace(/[/\\?%*:|"<>]/g, "_")
     .replace(/\s+/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "")
+    .replace(/^[. ]+|[. ]+$/g, "")
     .trim();
+
+  if (!s) s = "download";
+  const winReserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+  if (winReserved.test(s)) s = `_${s}`;
+  return s;
 }
 
 function sanitizeOutputPath(filePath, saveDir) {
@@ -498,6 +507,38 @@ function cookieArgs() {
   return [];
 }
 
+function normalizePathForShell(filePath) {
+  if (!filePath || typeof filePath !== "string") return "";
+  // Strip wrapping quotes + invisible/control characters that can break Explorer.
+  const cleaned = filePath
+    .replace(/^"(.*)"$/, "$1")
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, "")
+    .trim()
+    .normalize("NFC");
+  return path.normalize(cleaned);
+}
+
+function siteArgs(url) {
+  const u = String(url || "").toLowerCase();
+
+  // Some sites (notably PornHub) are strict about request headers for m3u8/API fetches.
+  if (u.includes("pornhub.com")) {
+    return [
+      "--user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+      "--add-header",
+      "Referer: https://www.pornhub.com/",
+      "--add-header",
+      "Origin: https://www.pornhub.com",
+      "--extractor-retries",
+      "5",
+    ];
+  }
+
+  return [];
+}
+
 // ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
@@ -690,6 +731,7 @@ ipcMain.handle("get-video-info", async (_, url) => {
       "--no-playlist",
       ...resolveJsRuntimeArgs(),
       ...cookieArgs(),
+      ...siteArgs(url),
       url,
     ];
     const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
@@ -717,6 +759,21 @@ ipcMain.handle("get-video-info", async (_, url) => {
       }
       try {
         const data = JSON.parse(output);
+        const normalizeThumbUrl = (u) => {
+          if (!u || typeof u !== "string") return null;
+          const s = u.replace(/&amp;/g, "&");
+          return s.startsWith("//") ? `https:${s}` : s;
+        };
+        const thumbs = Array.isArray(data.thumbnails) ? data.thumbnails : [];
+        const bestThumb =
+          thumbs
+            .filter((t) => t?.url)
+            .sort(
+              (a, b) =>
+                (b.width || 0) * (b.height || 0) -
+                (a.width || 0) * (a.height || 0),
+            )[0]?.url || null;
+        const thumbnail = normalizeThumbUrl(data.thumbnail) || normalizeThumbUrl(bestThumb);
         const rawFormats = [];
         const allVideoFormats = data.formats
           .filter((f) => f.vcodec !== "none" && f.vcodec !== null && f.height)
@@ -776,7 +833,7 @@ ipcMain.handle("get-video-info", async (_, url) => {
           const lang = f.language || null;
           const note = f.format_note || "";
           const abr = f.abr ? Math.round(f.abr) : null;
-          const key = lang ? `lang:${lang}` : `${note}-${f.acodec}-${abr}`;
+          const key = `${lang || "und"}-${note}-${f.acodec || "unknown"}-${abr || "na"}`;
           if (!seenAudio.has(key)) {
             seenAudio.add(key);
             let label = "";
@@ -798,6 +855,9 @@ ipcMain.handle("get-video-info", async (_, url) => {
               label,
               language: lang,
               abr,
+              note,
+              acodec: f.acodec || null,
+              ext: f.ext || null,
             });
           }
         }
@@ -811,8 +871,8 @@ ipcMain.handle("get-video-info", async (_, url) => {
 
         resolve({
           title: data.title,
-          thumbnail: data.thumbnail,
-          thumbnails: data.thumbnails || [],
+          thumbnail,
+          thumbnails: thumbs,
           duration: data.duration,
           uploader: data.uploader,
           formats,
@@ -902,6 +962,8 @@ ipcMain.handle(
       savePath,
       clipStart,
       clipEnd,
+      videoAudioTag,
+      audioTrackTag,
       audioOnly,
       audioQuality,
       audioTrackId,
@@ -917,10 +979,11 @@ ipcMain.handle(
         const quality = audioQuality || "192";
         const trackSelector = audioTrackId || "bestaudio/best";
         const outFormat = audioContainer || "mp3";
+        const safeTrackTag = audioTrackTag ? ` [${audioTrackTag}]` : "";
         const baseName =
           clipStart && clipEnd
-            ? `%(title)s [audio clip ${clipStart.replace(/:/g, ".")}-${clipEnd.replace(/:/g, ".")}].%(ext)s`
-            : `%(title)s [audio ${quality}k ${outFormat}].%(ext)s`;
+            ? `%(title)s [audio ${quality}k ${outFormat}]${safeTrackTag} [clip ${clipStart.replace(/:/g, ".")}-${clipEnd.replace(/:/g, ".")}].%(ext)s`
+            : `%(title)s [audio ${quality}k ${outFormat}]${safeTrackTag}.%(ext)s`;
         args = [
           "-f",
           trackSelector,
@@ -935,6 +998,7 @@ ipcMain.handle(
           "ffmpeg:-y",
           ...resolveJsRuntimeArgs(),
           ...cookieArgs(),
+          ...siteArgs(url),
           ...(clipStart && clipEnd
             ? ["--download-sections", `*${clipStart}-${clipEnd}`]
             : []),
@@ -944,10 +1008,13 @@ ipcMain.handle(
           url,
         ];
       } else {
+        const safeAudioTag = videoAudioTag ? ` [${videoAudioTag}]` : "";
         args = [
           "-f",
           formatId,
           "--merge-output-format",
+          container,
+          "--remux-video",
           container,
           "--ffmpeg-location",
           getFfmpegBin(),
@@ -955,6 +1022,7 @@ ipcMain.handle(
           "ffmpeg:-y",
           ...resolveJsRuntimeArgs(),
           ...cookieArgs(),
+          ...siteArgs(url),
           ...(clipStart && clipEnd
             ? ["--download-sections", `*${clipStart}-${clipEnd}`]
             : []),
@@ -962,8 +1030,8 @@ ipcMain.handle(
           path.join(
             savePath,
             clipStart && clipEnd
-              ? `%(title)s [${height}p ${container}] [clip ${clipStart.replace(/:/g, ".")}-${clipEnd.replace(/:/g, ".")}].%(ext)s`
-              : `%(title)s [${height}p ${container}].%(ext)s`,
+              ? `%(title)s [${height}p ${container}]${safeAudioTag} [clip ${clipStart.replace(/:/g, ".")}-${clipEnd.replace(/:/g, ".")}].%(ext)s`
+              : `%(title)s [${height}p ${container}]${safeAudioTag}.%(ext)s`,
           ),
           "--newline",
           url,
@@ -1020,6 +1088,20 @@ ipcMain.handle(
         const mergeMatch = line.match(/\[Merger\] Merging formats into "(.+)"/);
         if (mergeMatch) {
           outputFilePath = path.normalize(mergeMatch[1].trim());
+          if (!activeDownloadFiles.includes(outputFilePath))
+            activeDownloadFiles.push(outputFilePath);
+        }
+
+        // When --remux-video is used, final file path may differ after merge.
+        const remuxToQuoted = line.match(/\[VideoRemuxer\].* to "(.+)"/);
+        if (remuxToQuoted) {
+          outputFilePath = path.normalize(remuxToQuoted[1].trim());
+          if (!activeDownloadFiles.includes(outputFilePath))
+            activeDownloadFiles.push(outputFilePath);
+        }
+        const remuxDest = line.match(/\[VideoRemuxer\] Destination:\s+(.+)/);
+        if (remuxDest) {
+          outputFilePath = path.normalize(remuxDest[1].trim());
           if (!activeDownloadFiles.includes(outputFilePath))
             activeDownloadFiles.push(outputFilePath);
         }
@@ -1226,39 +1308,61 @@ ipcMain.handle("clear-history", () => {
 // IPC: File system helpers
 // ---------------------------------------------------------------------------
 
-ipcMain.handle("show-in-folder", (_, filePath) => {
+ipcMain.handle("show-in-folder", async (_, filePath) => {
   try {
     if (!filePath) {
-      shell.openPath(os.homedir());
-      return true;
+      const res = await shell.openPath(os.homedir());
+      if (res) console.error("[show-in-folder] openPath(home) error:", res);
+      return !res;
     }
 
-    const normalized = path.normalize(filePath.trim());
-    console.log("[show-in-folder] path:", normalized);
-    console.log("[show-in-folder] exists:", fs.existsSync(normalized));
+    const requested = normalizePathForShell(filePath);
+    const dir = path.dirname(requested);
+    const resolved = sanitizeOutputPath(requested, dir);
+    const targetFile = fs.existsSync(resolved) ? resolved : requested;
 
-    if (fs.existsSync(normalized)) {
+    console.log("[show-in-folder] requested:", requested);
+    console.log("[show-in-folder] resolved:", targetFile);
+    console.log("[show-in-folder] exists:", fs.existsSync(targetFile));
+
+    if (fs.existsSync(targetFile)) {
       if (isWin) {
         try {
-          const proc = spawn("explorer.exe", [`/select,${normalized}`], {
+          const fileForExplorer = targetFile.replace(/\//g, "\\");
+          const proc = spawn("explorer.exe", [`/select,${fileForExplorer}`], {
             detached: true,
             stdio: "ignore",
           });
           proc.unref();
+          return true;
         } catch (err) {
-          console.error("[show-in-folder] spawn error:", err.message);
-          shell.openPath(path.dirname(normalized));
+          console.error("[show-in-folder] explorer /select form1 error:", err.message);
         }
-      } else {
-        shell.showItemInFolder(normalized);
+        try {
+          const fileForExplorer = targetFile.replace(/\//g, "\\");
+          const proc = spawn("explorer.exe", ["/select,", fileForExplorer], {
+            detached: true,
+            stdio: "ignore",
+          });
+          proc.unref();
+          return true;
+        } catch (err) {
+          console.error("[show-in-folder] explorer /select form2 error:", err.message);
+        }
       }
-    } else {
-      const dir = path.dirname(normalized);
-      shell.openPath(fs.existsSync(dir) ? dir : os.homedir());
+      shell.showItemInFolder(targetFile);
+      return true;
     }
+
+    const targetDir = fs.existsSync(dir) ? dir : os.homedir();
+    const res = await shell.openPath(targetDir);
+    if (res) console.error("[show-in-folder] openPath(dir) error:", res);
+    return !res;
   } catch (err) {
     console.error("[show-in-folder] Error:", err);
-    shell.openPath(os.homedir());
+    const res = await shell.openPath(os.homedir());
+    if (res) console.error("[show-in-folder] openPath(catch) error:", res);
+    return false;
   }
   return true;
 });
@@ -1273,3 +1377,4 @@ ipcMain.handle("delete-file", (_, filePath) => {
   }
   return true;
 });
+

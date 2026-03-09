@@ -1,4 +1,5 @@
 import { AlertCircle, CheckCircle2, Download, Loader2, X } from "lucide-react";
+import { Btn } from "./ui/Primitives";
 
 export default function DownloadActions({
   C,
@@ -11,8 +12,9 @@ export default function DownloadActions({
   savePath,
   dlLabel,
   errorStatus,
-  Btn,
 }) {
+  const visualProgress = done ? 100 : smoothProgress;
+
   return (
     <>
       {(downloading || done) && (
@@ -36,7 +38,7 @@ export default function DownloadActions({
                 height: "100%",
                 borderRadius: 99,
                 transition: "width 0.15s linear",
-                width: `${smoothProgress}%`,
+                width: `${visualProgress}%`,
                 background: done ? C.gradSuccess : C.gradAccent,
                 boxShadow: done
                   ? "0 0 10px rgba(16,185,129,0.5)"
@@ -46,7 +48,7 @@ export default function DownloadActions({
           </div>
           {downloading && (
             <span style={{ fontSize: 11, color: C.textFaint }}>
-              {smoothProgress.toFixed(1)}%
+              {visualProgress.toFixed(1)}%
             </span>
           )}
           {done && <span style={{ fontSize: 11, color: "#34d399" }}>{status}</span>}

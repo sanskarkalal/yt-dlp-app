@@ -1,11 +1,11 @@
 import { ChevronDown, FolderOpen } from "lucide-react";
+import { FieldLabel } from "./ui/Primitives";
 
 export default function SavePathPicker({
   C,
   downloading,
   pickFolder,
   savePath,
-  FieldLabel,
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

@@ -1,5 +1,6 @@
 import * as Tabs from "@radix-ui/react-tabs";
 import { Music, Video } from "lucide-react";
+import { FieldLabel, SelectField } from "./ui/Primitives";
 
 export default function FormatSelectors({
   C,
@@ -22,8 +23,8 @@ export default function FormatSelectors({
   selectedContainer,
   allowedContainers,
   containerWarning,
-  FieldLabel,
-  SelectField,
+  videoAudioTrackId,
+  setVideoAudioTrackId,
   audioContainer,
   setAudioContainer,
   audioQuality,
@@ -148,12 +149,16 @@ export default function FormatSelectors({
             {
               label: "Bitrate",
               value: selectedBitrate != null ? String(selectedBitrate) : "",
-              opts: matchFmts.map((f) => ({
-                value: f.bitrate ?? "",
-                label: f.bitrate ? `${f.bitrate} kbps` : "Unknown",
-              })),
+              opts: matchFmts
+                .filter((f) => f.bitrate != null)
+                .map((f) => ({
+                  value: String(f.bitrate),
+                  label: `${f.bitrate} kbps`,
+                })),
               onChange: (v) => {
-                setSelectedBitrate(Number(v));
+                const nextBitrate = Number(v);
+                if (!Number.isFinite(nextBitrate)) return;
+                setSelectedBitrate(nextBitrate);
                 setDone(false);
               },
             },
@@ -189,10 +194,37 @@ export default function FormatSelectors({
           style={{
             marginTop: 10,
             fontSize: 12,
-            color: "#f59e0b",
+            color: C.textFaint,
           }}
         >
           {containerWarning}
+        </div>
+      )}
+      {!audioOnly && audioTracks.length > 1 && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            opacity: downloading ? 0.4 : 1,
+            pointerEvents: downloading ? "none" : "auto",
+          }}
+        >
+          <FieldLabel>Audio track / language</FieldLabel>
+          <SelectField
+            value={videoAudioTrackId}
+            onValueChange={(v) => {
+              setVideoAudioTrackId(v);
+              setDone(false);
+            }}
+            options={[
+              { value: "auto", label: "Auto (default/original)" },
+              ...audioTracks.map((t) => ({
+                value: t.format_id,
+                label: t.label,
+              })),
+            ]}
+          />
         </div>
       )}
 
@@ -246,7 +278,7 @@ export default function FormatSelectors({
               }))}
             />
           </div>
-          {audioTracks.length > 1 && (
+          {audioTracks.length > 0 && (
             <div
               style={{
                 gridColumn: "span 2",
@@ -255,7 +287,7 @@ export default function FormatSelectors({
                 gap: 6,
               }}
             >
-              <FieldLabel>Audio track</FieldLabel>
+              <FieldLabel>Audio track / language</FieldLabel>
               <SelectField
                 value={audioTrackId}
                 onValueChange={(v) => {

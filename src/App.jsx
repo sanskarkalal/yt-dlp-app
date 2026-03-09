@@ -1,24 +1,16 @@
-import { useState, useEffect, useRef, createContext, useContext } from "react";
-import * as Select from "@radix-ui/react-select";
-import * as ScrollArea from "@radix-ui/react-scroll-area";
+import { useState, useEffect, useRef } from "react";
 import {
   Download,
   X,
   Clock,
   CheckCircle2,
-  ChevronDown,
   LogIn,
   Image as ImageIcon,
-  Scissors,
   Music,
   Video,
   Loader2,
   Bot,
   Lock,
-  Folder,
-  Trash2,
-  CheckSquare,
-  Square,
   ClipboardPaste,
   RefreshCw,
   Sun,
@@ -29,930 +21,34 @@ import {
   estimateSizeRangeLabel,
   getAllowedContainers,
 } from "./lib/format-utils";
+import { formatDuration, isValidTime, timeToSecs } from "./lib/time-utils";
+import { DARK, LIGHT, ThemeCtx } from "./theme";
 import iconPng from "./assets/icon.png";
 import FormatSelectors from "./components/FormatSelectors";
 import ClipControls from "./components/ClipControls";
 import SavePathPicker from "./components/SavePathPicker";
 import DownloadActions from "./components/DownloadActions";
+import HistoryDrawer from "./components/HistoryDrawer";
+import { Badge, Btn, IconBtn, inputBase, pill } from "./components/ui/Primitives";
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
-const DARK = {
-  bg: "#09090f",
-  surface: "#0f0f1a",
-  surfaceHigh: "#151525",
-  border: "rgba(255,255,255,0.07)",
-  borderHover: "rgba(255,255,255,0.13)",
-  borderFocus: "rgba(139,92,246,0.5)",
-  textPrimary: "rgba(255,255,255,0.9)",
-  textMuted: "rgba(255,255,255,0.4)",
-  textFaint: "rgba(255,255,255,0.18)",
-  violetLight: "#a78bfa",
-  gradAccent: "linear-gradient(135deg, #7c3aed, #db2777)",
-  gradSuccess: "linear-gradient(135deg, #059669, #10b981)",
-  glowViolet: "0 0 24px rgba(124,58,237,0.3)",
-  selectBg: "#13132a",
-  historyBg: "linear-gradient(180deg,#0d0d1f 0%,#09090f 100%)",
-};
-
-const LIGHT = {
-  bg: "#fffaf5",
-  surface: "#ffffff",
-  surfaceHigh: "#fff1e6",
-  border: "rgba(234,88,12,0.12)",
-  borderHover: "rgba(234,88,12,0.25)",
-  borderFocus: "rgba(249,115,22,0.5)",
-  textPrimary: "#1c0f00",
-  textMuted: "#78716c",
-  textFaint: "#d97706",
-  violetLight: "#ea580c",
-  gradAccent: "linear-gradient(135deg, #ea580c, #f59e0b)",
-  gradSuccess: "linear-gradient(135deg, #059669, #10b981)",
-  glowViolet: "0 4px 20px rgba(249,115,22,0.2)",
-  selectBg: "#ffffff",
-  historyBg: "linear-gradient(180deg,#fffaf5 0%,#fff1e6 100%)",
-};
-
-const ThemeCtx = createContext(DARK);
-const useC = () => useContext(ThemeCtx);
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function isValidTime(t) {
-  return /^\d{1,2}:\d{2}(:\d{2})?$/.test(t);
-}
-function timeToSecs(t) {
-  if (!t) return null;
-  const p = t.split(":").map(Number);
-  if (p.length === 2) return p[0] * 60 + p[1];
-  if (p.length === 3) return p[0] * 3600 + p[1] * 60 + p[2];
-  return null;
-}
-function formatDuration(s) {
-  if (!s) return "";
-  const h = Math.floor(s / 3600),
-    m = Math.floor((s % 3600) / 60),
-    sec = s % 60;
-  if (h > 0)
-    return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
-  return `${m}:${String(sec).padStart(2, "0")}`;
-}
-function timeAgo(ts) {
-  const d = Date.now() - ts,
-    m = Math.floor(d / 60000),
-    h = Math.floor(d / 3600000),
-    day = Math.floor(d / 86400000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  if (h < 24) return `${h}h ago`;
-  return `${day}d ago`;
+function normalizeThumbnailUrl(u) {
+  if (!u || typeof u !== "string") return null;
+  const s = u.replace(/&amp;/g, "&");
+  return s.startsWith("//") ? `https:${s}` : s;
 }
 
-// ─── Shared style helpers ─────────────────────────────────────────────────────
-const pill = (C, extra = {}) => ({
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  height: 40,
-  padding: "0 12px",
-  background: C.surface,
-  border: `1px solid ${C.border}`,
-  borderRadius: 12,
-  transition: "border-color 0.15s",
-  ...extra,
-});
-
-const inputBase = (C) => ({
-  flex: 1,
-  background: "transparent",
-  border: "none",
-  outline: "none",
-  fontSize: 13,
-  color: C.textPrimary,
-  fontFamily: "inherit",
-});
-
-// ─── Primitives ───────────────────────────────────────────────────────────────
-function FieldLabel({ children }) {
-  const C = useC();
-  return (
-    <span
-      style={{
-        fontSize: 10,
-        fontWeight: 700,
-        textTransform: "uppercase",
-        letterSpacing: "0.12em",
-        color: C.textFaint,
-      }}
-    >
-      {children}
-    </span>
-  );
+function getBestThumbnailUrl(info) {
+  if (!info) return null;
+  const thumbs = Array.isArray(info.thumbnails) ? info.thumbnails : [];
+  const best = thumbs
+    .filter((t) => t?.url)
+    .sort(
+      (a, b) =>
+        (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0),
+    )[0]?.url;
+  return normalizeThumbnailUrl(info.thumbnail) || normalizeThumbnailUrl(best);
 }
 
-function Badge({ children, color = "violet" }) {
-  const C = useC();
-  const map = {
-    violet: ["rgba(139,92,246,0.12)", "rgba(139,92,246,0.25)", "#a78bfa"],
-    pink: ["rgba(236,72,153,0.12)", "rgba(236,72,153,0.25)", "#f472b6"],
-    amber: ["rgba(245,158,11,0.12)", "rgba(245,158,11,0.25)", "#fbbf24"],
-    green: ["rgba(16,185,129,0.12)", "rgba(16,185,129,0.25)", "#34d399"],
-    ghost: [C.surfaceHigh, C.border, C.textMuted],
-  };
-  const [bg, border, text] = map[color] || map.ghost;
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "2px 8px",
-        borderRadius: 6,
-        fontSize: 10,
-        fontWeight: 600,
-        background: bg,
-        border: `1px solid ${border}`,
-        color: text,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function IconBtn({ onClick, disabled, title, children }) {
-  const C = useC();
-  const [hov, setHov] = useState(false);
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: 32,
-        height: 32,
-        borderRadius: 10,
-        background: hov ? C.surfaceHigh : "transparent",
-        border: "1px solid transparent",
-        color: hov ? C.textPrimary : C.textMuted,
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.4 : 1,
-        transition: "all 0.15s",
-      }}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Btn({
-  children,
-  onClick,
-  disabled,
-  variant = "primary",
-  fullWidth,
-  style: sx,
-  title,
-}) {
-  const C = useC();
-  const [hov, setHov] = useState(false);
-  const base = {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    height: 40,
-    padding: "0 18px",
-    borderRadius: 12,
-    fontSize: 13,
-    fontWeight: 600,
-    width: fullWidth ? "100%" : undefined,
-    cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.4 : 1,
-    transition: "all 0.15s",
-    border: "none",
-  };
-  const vs = {
-    primary: {
-      background: C.gradAccent,
-      color: "#fff",
-      boxShadow:
-        hov && !disabled ? "0 0 28px rgba(124,58,237,0.45)" : C.glowViolet,
-    },
-    success: { background: C.gradSuccess, color: "#fff", cursor: "default" },
-    danger: {
-      background: "linear-gradient(135deg,#dc2626,#b91c1c)",
-      color: "#fff",
-      boxShadow: hov ? "0 0 20px rgba(220,38,38,0.4)" : "none",
-    },
-    ghost: {
-      background: hov ? C.surfaceHigh : C.surface,
-      color: C.textMuted,
-      border: `1px solid ${C.border}`,
-    },
-  };
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      style={{ ...base, ...vs[variant], ...sx }}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-    >
-      {children}
-    </button>
-  );
-}
-
-function SelectField({ value, onValueChange, options, placeholder, disabled }) {
-  const C = useC();
-  const [hov, setHov] = useState(false);
-  return (
-    <Select.Root
-      value={value != null ? String(value) : ""}
-      onValueChange={onValueChange}
-      disabled={disabled}
-    >
-      <Select.Trigger
-        style={{
-          ...pill(C),
-          width: "100%",
-          cursor: "pointer",
-          justifyContent: "space-between",
-          borderColor: hov ? C.borderHover : C.border,
-        }}
-        onMouseEnter={() => setHov(true)}
-        onMouseLeave={() => setHov(false)}
-      >
-        <Select.Value
-          placeholder={
-            <span style={{ color: C.textFaint }}>{placeholder}</span>
-          }
-        />
-        <Select.Icon style={{ color: C.textFaint, display: "flex" }}>
-          <ChevronDown size={14} />
-        </Select.Icon>
-      </Select.Trigger>
-      <Select.Portal>
-        <Select.Content
-          position="popper"
-          sideOffset={4}
-          style={{
-            zIndex: 999,
-            minWidth: "var(--radix-select-trigger-width)",
-            background: C.selectBg,
-            border: `1px solid ${C.border}`,
-            borderRadius: 12,
-            boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
-            overflow: "hidden",
-          }}
-        >
-          <Select.Viewport
-            style={{ padding: 4, maxHeight: 180, overflowY: "auto" }}
-          >
-            {options.map((opt) => (
-              <SelectItem key={String(opt.value)} value={String(opt.value)}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </Select.Viewport>
-        </Select.Content>
-      </Select.Portal>
-    </Select.Root>
-  );
-}
-
-function SelectItem({ value, children }) {
-  const C = useC();
-  const [hov, setHov] = useState(false);
-  return (
-    <Select.Item
-      value={value}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        padding: "8px 12px",
-        borderRadius: 8,
-        fontSize: 13,
-        color: hov ? C.textPrimary : C.textMuted,
-        background: hov ? C.surfaceHigh : "transparent",
-        cursor: "pointer",
-        outline: "none",
-        transition: "all 0.1s",
-        userSelect: "none",
-      }}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-    >
-      <Select.ItemText>{children}</Select.ItemText>
-    </Select.Item>
-  );
-}
-
-// ─── Range Slider ─────────────────────────────────────────────────────────────
-function RangeSlider({
-  duration,
-  startSecs,
-  endSecs,
-  onStartChange,
-  onEndChange,
-  disabled,
-}) {
-  const C = useC();
-  const trackRef = useRef(null);
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const sPct = duration > 0 ? (startSecs / duration) * 100 : 0;
-  const ePct = duration > 0 ? (endSecs / duration) * 100 : 100;
-  const toTime = (s) => {
-    const h = Math.floor(s / 3600),
-      m = Math.floor((s % 3600) / 60),
-      sec = Math.floor(s % 60);
-    if (h > 0)
-      return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
-    return `${m}:${String(sec).padStart(2, "0")}`;
-  };
-  const drag = (which) => (e) => {
-    if (disabled) return;
-    e.preventDefault();
-    const move = (me) => {
-      if (!trackRef.current) return;
-      const r = trackRef.current.getBoundingClientRect();
-      const pct = clamp((me.clientX - r.left) / r.width, 0, 1);
-      const sec = Math.round(pct * duration);
-      if (which === "start") onStartChange(toTime(clamp(sec, 0, endSecs - 1)));
-      else onEndChange(toTime(clamp(sec, startSecs + 1, duration)));
-    };
-    const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-  };
-  return (
-    <div
-      ref={trackRef}
-      style={{
-        position: "relative",
-        height: 20,
-        display: "flex",
-        alignItems: "center",
-        cursor: "pointer",
-        userSelect: "none",
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          height: 3,
-          background: C.border,
-          borderRadius: 99,
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          height: 3,
-          borderRadius: 99,
-          background: C.gradAccent,
-          left: `${sPct}%`,
-          right: `${100 - ePct}%`,
-        }}
-      />
-      {[
-        { w: "start", p: sPct },
-        { w: "end", p: ePct },
-      ].map(({ w, p }) => (
-        <div
-          key={w}
-          onMouseDown={drag(w)}
-          style={{
-            position: "absolute",
-            width: 14,
-            height: 14,
-            borderRadius: "50%",
-            background: C.violetLight,
-            border: `2px solid ${C.bg}`,
-            left: `calc(${p}% - 7px)`,
-            zIndex: 2,
-            cursor: "grab",
-            boxShadow: "0 0 8px rgba(139,92,246,0.6)",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-// ─── History Drawer ───────────────────────────────────────────────────────────
-function HistoryDrawer({ open, onClose }) {
-  const C = useC();
-  const [history, setHistory] = useState([]);
-  const [clearing, setClearing] = useState(false);
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [confirmDialog, setConfirmDialog] = useState(null);
-
-  useEffect(() => {
-    if (open) window.electronAPI.getHistory().then(setHistory);
-    else setSelectedIds(new Set());
-  }, [open]);
-
-  const handleClearAll = async () => {
-    setClearing(true);
-    await window.electronAPI.clearHistory();
-    setHistory([]);
-    setSelectedIds(new Set());
-    setClearing(false);
-  };
-
-  const handleRemoveEntry = async (e, entry) => {
-    e.stopPropagation();
-    await window.electronAPI.deleteHistoryEntry(entry.id);
-    setHistory((p) => p.filter((x) => x.id !== entry.id));
-    setSelectedIds((p) => {
-      const n = new Set(p);
-      n.delete(entry.id);
-      return n;
-    });
-  };
-
-  const handleDeleteSelected = () =>
-    setConfirmDialog({ type: "bulk", count: selectedIds.size });
-
-  const confirmDelete = async () => {
-    setConfirmDialog(null);
-    setBulkDeleting(true);
-    for (const e of history.filter((e) => selectedIds.has(e.id))) {
-      if (e.filePath) await window.electronAPI.deleteFile(e.filePath);
-      await window.electronAPI.deleteHistoryEntry(e.id);
-    }
-    setHistory((p) => p.filter((e) => !selectedIds.has(e.id)));
-    setSelectedIds(new Set());
-    setBulkDeleting(false);
-  };
-
-  const toggleSelect = (id) =>
-    setSelectedIds((p) => {
-      const n = new Set(p);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
-
-  const toggleAll = () =>
-    selectedIds.size === history.length
-      ? setSelectedIds(new Set())
-      : setSelectedIds(new Set(history.map((e) => e.id)));
-
-  const typeMeta = {
-    video: { label: "Video", color: "violet", Icon: Video },
-    audio: { label: "Audio", color: "pink", Icon: Music },
-    thumbnail: { label: "Thumb", color: "amber", Icon: ImageIcon },
-    clip: { label: "Clip", color: "green", Icon: Scissors },
-  };
-
-  const allSel = history.length > 0 && selectedIds.size === history.length;
-
-  return (
-    <>
-      {confirmDialog && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 100,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.7)",
-            backdropFilter: "blur(8px)",
-          }}
-        >
-          <div
-            style={{
-              width: 300,
-              background: C.selectBg,
-              border: `1px solid ${C.border}`,
-              borderRadius: 18,
-              padding: "28px 24px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 20,
-              boxShadow: "0 32px 80px rgba(0,0,0,0.7)",
-              textAlign: "center",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-                alignItems: "center",
-              }}
-            >
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 12,
-                  background: "rgba(220,38,38,0.12)",
-                  border: "1px solid rgba(220,38,38,0.2)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Trash2 size={18} style={{ color: "#f87171" }} />
-              </div>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 15,
-                  fontWeight: 700,
-                  color: C.textPrimary,
-                  textAlign: "center",
-                }}
-              >
-                Delete {confirmDialog.count} item
-                {confirmDialog.count > 1 ? "s" : ""}?
-              </p>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 12,
-                  color: C.textFaint,
-                  lineHeight: 1.6,
-                  textAlign: "center",
-                }}
-              >
-                This will delete the selected item
-                {confirmDialog.count > 1 ? "s" : ""} and their files from disk.
-              </p>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => setConfirmDialog(null)}
-                style={{
-                  flex: 1,
-                  height: 38,
-                  borderRadius: 10,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  background: C.surfaceHigh,
-                  border: `1px solid ${C.border}`,
-                  color: C.textMuted,
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDelete}
-                style={{
-                  flex: 1,
-                  height: 38,
-                  borderRadius: 10,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  background: "linear-gradient(135deg,#dc2626,#b91c1c)",
-                  border: "none",
-                  color: "#fff",
-                  cursor: "pointer",
-                  boxShadow: "0 0 20px rgba(220,38,38,0.35)",
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div
-        onClick={onClose}
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 40,
-          background: "rgba(0,0,0,0.6)",
-          backdropFilter: "blur(4px)",
-          opacity: open ? 1 : 0,
-          pointerEvents: open ? "auto" : "none",
-          transition: "opacity 0.25s",
-        }}
-      />
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          right: 0,
-          height: "100%",
-          zIndex: 50,
-          width: 420,
-          display: "flex",
-          flexDirection: "column",
-          background: C.historyBg,
-          borderLeft: `1px solid ${C.border}`,
-          transform: open ? "translateX(0)" : "translateX(100%)",
-          transition: "transform 0.28s cubic-bezier(0.4,0,0.2,1)",
-          boxShadow: open ? "-24px 0 64px rgba(0,0,0,0.5)" : "none",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "52px 20px 14px",
-            borderBottom: `1px solid ${C.border}`,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Clock size={15} style={{ color: C.textFaint }} />
-            <span
-              style={{ fontSize: 13, fontWeight: 600, color: C.textPrimary }}
-            >
-              History
-            </span>
-            {history.length > 0 && (
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 600,
-                  padding: "2px 6px",
-                  borderRadius: 6,
-                  background: C.surfaceHigh,
-                  color: C.textFaint,
-                }}
-              >
-                {history.length}
-              </span>
-            )}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {history.length > 0 && (
-              <button
-                onClick={toggleAll}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 4,
-                  fontSize: 11,
-                  fontWeight: 500,
-                  padding: "4px 10px",
-                  borderRadius: 8,
-                  background: allSel ? "rgba(124,58,237,0.15)" : C.surfaceHigh,
-                  border: `1px solid ${
-                    allSel ? "rgba(124,58,237,0.3)" : C.border
-                  }`,
-                  color: allSel ? C.violetLight : C.textMuted,
-                  cursor: "pointer",
-                }}
-              >
-                {allSel ? <CheckSquare size={12} /> : <Square size={12} />}
-                {allSel ? "Deselect all" : "Select all"}
-              </button>
-            )}
-            {selectedIds.size > 0 ? (
-              <button
-                onClick={handleDeleteSelected}
-                disabled={bulkDeleting}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 4,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  padding: "4px 10px",
-                  borderRadius: 8,
-                  background: "rgba(220,38,38,0.12)",
-                  border: "1px solid rgba(220,38,38,0.25)",
-                  color: "#f87171",
-                  cursor: "pointer",
-                }}
-              >
-                {bulkDeleting ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : (
-                  <Trash2 size={12} />
-                )}
-                Delete ({selectedIds.size})
-              </button>
-            ) : history.length > 0 ? (
-              <button
-                onClick={handleClearAll}
-                disabled={clearing}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 4,
-                  fontSize: 11,
-                  fontWeight: 500,
-                  padding: "4px 10px",
-                  borderRadius: 8,
-                  background: C.surfaceHigh,
-                  border: `1px solid ${C.border}`,
-                  color: C.textMuted,
-                  cursor: "pointer",
-                }}
-              >
-                {clearing ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : (
-                  <Trash2 size={12} />
-                )}
-                Clear all
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <ScrollArea.Root style={{ flex: 1, overflow: "hidden" }}>
-          <ScrollArea.Viewport style={{ height: "100%", width: "100%" }}>
-            {history.length === 0 ? (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  height: 240,
-                  gap: 10,
-                  color: C.textFaint,
-                }}
-              >
-                <Clock size={28} strokeWidth={1.5} />
-                <span style={{ fontSize: 13 }}>No downloads yet</span>
-              </div>
-            ) : (
-              <div
-                style={{
-                  padding: "8px 10px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
-                }}
-              >
-                {history.map((entry) => {
-                  const meta = typeMeta[entry.type] || typeMeta.video;
-                  const isSel = selectedIds.has(entry.id);
-
-                  return (
-                    <div
-                      key={entry.id}
-                      onClick={() => toggleSelect(entry.id)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        padding: "8px 10px",
-                        borderRadius: 12,
-                        cursor: "pointer",
-                        background: isSel ? "rgba(124,58,237,0.1)" : C.surface,
-                        border: `1px solid ${
-                          isSel ? "rgba(124,58,237,0.25)" : C.border
-                        }`,
-                        transition: "all 0.15s",
-                        width: "100%",
-                        boxSizing: "border-box",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 52,
-                          height: 36,
-                          borderRadius: 8,
-                          overflow: "hidden",
-                          background: C.surfaceHigh,
-                          flexShrink: 0,
-                          position: "relative",
-                        }}
-                      >
-                        {entry.thumbnail ? (
-                          <img
-                            src={entry.thumbnail}
-                            alt=""
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                            }}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              color: C.textFaint,
-                            }}
-                          >
-                            <meta.Icon size={14} />
-                          </div>
-                        )}
-                        {isSel && (
-                          <div
-                            style={{
-                              position: "absolute",
-                              inset: 0,
-                              background: "rgba(124,58,237,0.35)",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            <CheckCircle2
-                              size={14}
-                              style={{ color: "#a78bfa" }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0, width: 0 }}>
-                        <p
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 500,
-                            color: C.textPrimary,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            margin: 0,
-                          }}
-                        >
-                          {entry.title}
-                        </p>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            marginTop: 3,
-                          }}
-                        >
-                          <Badge color={meta.color}>{meta.label}</Badge>
-                          {entry.quality && (
-                            <span
-                              style={{
-                                fontSize: 10,
-                                color: C.textFaint,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {entry.quality}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div
-                        style={{ display: "flex", gap: 2, flexShrink: 0 }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {entry.filePath && (
-                          <IconBtn
-                            title="Show in folder"
-                            onClick={() =>
-                              window.electronAPI.showInFolder(entry.filePath)
-                            }
-                          >
-                            <Folder size={13} />
-                          </IconBtn>
-                        )}
-                        <IconBtn
-                          title="Remove from history"
-                          onClick={(e) => handleRemoveEntry(e, entry)}
-                        >
-                          <X size={13} />
-                        </IconBtn>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </ScrollArea.Viewport>
-          <ScrollArea.Scrollbar
-            orientation="vertical"
-            style={{ width: 6, padding: 2 }}
-          >
-            <ScrollArea.Thumb
-              style={{ background: C.borderHover, borderRadius: 99 }}
-            />
-          </ScrollArea.Scrollbar>
-        </ScrollArea.Root>
-      </div>
-    </>
-  );
-}
-
-// ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [darkMode, setDarkMode] = useState(true);
   const C = darkMode ? DARK : LIGHT;
@@ -981,9 +77,11 @@ export default function App() {
   const [audioOnly, setAudioOnly] = useState(false);
   const [audioQuality, setAudioQuality] = useState("192");
   const [audioTrackId, setAudioTrackId] = useState("bestaudio/best");
+  const [videoAudioTrackId, setVideoAudioTrackId] = useState("auto");
   const [audioContainer, setAudioContainer] = useState("mp3");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [botDetected, setBotDetected] = useState(false);
+  const [thumbnailLoadError, setThumbnailLoadError] = useState(false);
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
 
@@ -1019,9 +117,9 @@ export default function App() {
     selectedContainer === "mkv" &&
     (selectedCodec === "H264" || selectedCodec === "H265");
   const containerWarning = showMp4Warning
-    ? "MP4 is available for this codec, but compatibility may be lower. MKV is generally more reliable."
+    ? "Hint: MKV is usually the preferred container for this codec."
     : showMkvWarning
-      ? "MKV works, but MP4 is usually the most compatible choice for H264/H265."
+      ? "Hint: MP4 is usually the preferred container for H264/H265."
       : null;
   const clipStartSecs = timeToSecs(clipStart);
   const clipEndSecs = timeToSecs(clipEnd);
@@ -1048,6 +146,7 @@ export default function App() {
     estimatedDurationSecs,
     estimateUncertainty,
   );
+  const bestThumbnailUrl = getBestThumbnailUrl(videoInfo);
 
   useEffect(() => {
     progressRef.current = progress;
@@ -1070,6 +169,10 @@ export default function App() {
     window.electronAPI.getDownloadsPath().then(setSavePath);
     window.electronAPI.onCookiesStatus((ok) => setCookiesOk(ok));
   }, []);
+
+  useEffect(() => {
+    setThumbnailLoadError(false);
+  }, [bestThumbnailUrl, videoInfo?.title]);
 
   useEffect(() => {
     if (
@@ -1127,6 +230,31 @@ export default function App() {
           (f) => f.height === h && f.codec === codecs[0],
         );
         setSelectedContainer(getAllowedContainers(firstFmt)[0]);
+      }
+      setVideoAudioTrackId("auto");
+      if (info.audioTracks?.length > 0) {
+        const bestTrack = [...info.audioTracks].sort(
+          (a, b) => (b.abr || 0) - (a.abr || 0),
+        )[0];
+        if (bestTrack?.format_id) setAudioTrackId(bestTrack.format_id);
+
+        const abr = Number(bestTrack?.abr || 0);
+        const preferredQuality =
+          [320, 256, 192, 128, 96].find((q) => abr >= q) || 96;
+        setAudioQuality(String(preferredQuality));
+
+        const acodec = String(bestTrack?.acodec || "").toLowerCase();
+        const ext = String(bestTrack?.ext || "").toLowerCase();
+        let preferredFormat = "mp3";
+        if (ext === "m4a" || acodec.includes("mp4a") || acodec.includes("aac"))
+          preferredFormat = "m4a";
+        else if (ext === "opus" || acodec.includes("opus"))
+          preferredFormat = "opus";
+        else if (ext === "flac" || acodec.includes("flac"))
+          preferredFormat = "flac";
+        else if (ext === "wav" || acodec.includes("pcm"))
+          preferredFormat = "wav";
+        setAudioContainer(preferredFormat);
       }
     } catch (err) {
       if (err?.message?.includes("AGE_RESTRICTED")) {
@@ -1211,22 +339,189 @@ export default function App() {
     });
 
     try {
-      const selRaw = videoInfo?.rawFormats?.find(
+      const pickPreferredVideoAudioTrackId = (tracks) => {
+        const list = Array.isArray(tracks) ? tracks : [];
+        if (list.length === 0) return null;
+
+        const candidates = list.filter((t) => t?.format_id);
+        const isEnglish = (lang) => {
+          const l = String(lang || "").toLowerCase();
+          return l === "en" || l.startsWith("en-") || l === "eng";
+        };
+        const hasEnglishHint = (t) => {
+          const note = String(t.note || "").toLowerCase();
+          const label = String(t.label || "").toLowerCase();
+          return (
+            isEnglish(t.language) ||
+            /\benglish\b/.test(note) ||
+            /\benglish\b/.test(label) ||
+            /\beng\b/.test(note) ||
+            /\beng\b/.test(label)
+          );
+        };
+        const scoreTrack = (t) => {
+          const note = String(t.note || "").toLowerCase();
+          const lang = String(t.language || "").toLowerCase();
+          let score = 0;
+          if (hasEnglishHint(t)) score += 1400;
+          if (note.includes("original")) score += 1000;
+          if (note.includes("default")) score += 700;
+          if (note.includes("source")) score += 400;
+          if (note.includes("dub") || note.includes("dubbed")) score -= 700;
+          if (note.includes("commentary") || note.includes("descriptive"))
+            score -= 400;
+          if (lang === "und" || lang === "unknown" || lang === "original")
+            score += 350;
+          if (
+            lang.startsWith("zh") ||
+            lang.startsWith("cmn") ||
+            lang.startsWith("yue") ||
+            lang.startsWith("ja") ||
+            lang.startsWith("ko")
+          ) {
+            score -= 500;
+          }
+          score += Number(t.abr || 0);
+          return score;
+        };
+
+        const englishCandidates = candidates
+          .filter((t) => hasEnglishHint(t))
+          .sort((a, b) => scoreTrack(b) - scoreTrack(a));
+        if (englishCandidates.length > 0) return englishCandidates[0].format_id;
+
+        const scored = candidates
+          .map((t) => ({ id: t.format_id, score: scoreTrack(t) }))
+          .sort((a, b) => b.score - a.score);
+
+        return scored[0]?.id || null;
+      };
+
+      const selectedExt = String(selectedContainer || "").toLowerCase();
+      const rawFormats = videoInfo?.rawFormats || [];
+      const preferVideoOnly = !audioOnly;
+      const scopedRawFormats = preferVideoOnly
+        ? rawFormats.filter((f) => !f.hasMuxedAudio)
+        : rawFormats;
+      const sameTuple = rawFormats.filter(
         (f) =>
           f.height === selectedHeight &&
           f.codec === selectedCodec &&
           f.bitrate === selectedBitrate,
       );
-      const hasMuxed = selRaw?.hasMuxedAudio ?? false;
+      const sameTupleScoped = scopedRawFormats.filter(
+        (f) =>
+          f.height === selectedHeight &&
+          f.codec === selectedCodec &&
+          f.bitrate === selectedBitrate,
+      );
+      const sameTupleExt = sameTuple.find(
+        (f) => String(f.ext || "").toLowerCase() === selectedExt,
+      );
+      const sameTupleExtScoped = sameTupleScoped.find(
+        (f) => String(f.ext || "").toLowerCase() === selectedExt,
+      );
+      const sameCodecExtHeight = rawFormats
+        .filter(
+          (f) =>
+            f.height === selectedHeight &&
+            f.codec === selectedCodec &&
+            String(f.ext || "").toLowerCase() === selectedExt,
+        )
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      const sameCodecExtHeightScoped = scopedRawFormats
+        .filter(
+          (f) =>
+            f.height === selectedHeight &&
+            f.codec === selectedCodec &&
+            String(f.ext || "").toLowerCase() === selectedExt,
+        )
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      const sameHeightExt = rawFormats
+        .filter(
+          (f) =>
+            f.height === selectedHeight &&
+            String(f.ext || "").toLowerCase() === selectedExt,
+        )
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      const sameHeightExtScoped = scopedRawFormats
+        .filter(
+          (f) =>
+            f.height === selectedHeight &&
+            String(f.ext || "").toLowerCase() === selectedExt,
+        )
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      const sameHeight = rawFormats
+        .filter((f) => f.height === selectedHeight)
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      const sameHeightScoped = scopedRawFormats
+        .filter((f) => f.height === selectedHeight)
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+      const selRaw =
+        sameTupleExtScoped ||
+        sameTupleScoped[0] ||
+        sameCodecExtHeightScoped[0] ||
+        sameHeightExtScoped[0] ||
+        sameHeightScoped[0] ||
+        sameTupleExt ||
+        sameTuple[0] ||
+        sameCodecExtHeight[0] ||
+        sameHeightExt[0] ||
+        sameHeight[0];
+      const preferredVideoAudioTrackId = pickPreferredVideoAudioTrackId(
+        videoInfo?.audioTracks,
+      );
+      const effectiveVideoAudioTrackId =
+        videoAudioTrackId && videoAudioTrackId !== "auto"
+          ? videoAudioTrackId
+          : preferredVideoAudioTrackId;
+      const isManualVideoAudioTrack =
+        videoAudioTrackId && videoAudioTrackId !== "auto";
+      const selectedVideoTrack = (videoInfo?.audioTracks || []).find(
+        (t) => t.format_id === effectiveVideoAudioTrackId,
+      );
+      const selectedAudioOnlyTrack = (videoInfo?.audioTracks || []).find(
+        (t) => t.format_id === audioTrackId,
+      );
+      const videoAudioTag = selectedVideoTrack
+        ? selectedVideoTrack.language
+          ? `audio ${String(selectedVideoTrack.language).toUpperCase()}`
+          : selectedVideoTrack.label
+            ? `audio ${selectedVideoTrack.label}`
+            : "audio track"
+        : null;
+      const audioOnlyTrackTag = selectedAudioOnlyTrack
+        ? selectedAudioOnlyTrack.language
+          ? `track ${String(selectedAudioOnlyTrack.language).toUpperCase()}`
+          : selectedAudioOnlyTrack.label
+            ? `track ${selectedAudioOnlyTrack.label}`
+            : "track selected"
+        : audioTrackId === "bestaudio/best"
+          ? "track AUTO"
+          : null;
+      const forcePreferredAudioTrack =
+        !audioOnly && Boolean(isManualVideoAudioTrack && effectiveVideoAudioTrackId);
+      const hasMuxed = audioOnly ? (selRaw?.hasMuxedAudio ?? false) : false;
       const vfid =
         selRaw?.format_id ??
-        videoInfo?.rawFormats
-          ?.filter((f) => f.height === selectedHeight)
+        rawFormats
+          ?.filter(
+            (f) =>
+              f.height === selectedHeight &&
+              String(f.ext || "").toLowerCase() === selectedExt,
+          )
           .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0]?.format_id;
       const fmtId = vfid
-        ? hasMuxed
-          ? vfid
-          : `${vfid}+bestaudio/best`
+        ? forcePreferredAudioTrack
+          ? isManualVideoAudioTrack
+            ? `${vfid}+${effectiveVideoAudioTrackId}`
+            : `${vfid}+${effectiveVideoAudioTrackId}/${vfid}+bestaudio/best`
+          : !audioOnly
+            ? `${vfid}+bestaudio[language^=en]/${vfid}+bestaudio/best`
+            : hasMuxed
+              ? vfid
+              : `${vfid}+bestaudio/best`
         : "bestvideo+bestaudio/best";
 
       const result = await window.electronAPI.download({
@@ -1237,6 +532,8 @@ export default function App() {
         height: selectedHeight,
         clipStart: effectiveStart,
         clipEnd: effectiveEnd,
+        videoAudioTag: audioOnly ? null : videoAudioTag,
+        audioTrackTag: audioOnly ? audioOnlyTrackTag : null,
         audioOnly,
         audioQuality,
         audioTrackId: audioOnly ? audioTrackId : null,
@@ -1254,7 +551,7 @@ export default function App() {
 
       await window.electronAPI.addHistory({
         title: videoInfo?.title || url,
-        thumbnail: videoInfo?.thumbnail || null,
+        thumbnail: bestThumbnailUrl || null,
         type: audioOnly
           ? "audio"
           : effectiveStart && effectiveEnd
@@ -1299,14 +596,14 @@ export default function App() {
             (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0),
         )[0];
       const fp = await window.electronAPI.downloadThumbnail({
-        thumbnailUrl: best?.url || videoInfo.thumbnail,
+        thumbnailUrl: normalizeThumbnailUrl(best?.url) || bestThumbnailUrl,
         title: videoInfo.title,
         savePath,
       });
       setThumbDone(true);
       await window.electronAPI.addHistory({
         title: videoInfo.title,
-        thumbnail: videoInfo.thumbnail || null,
+        thumbnail: bestThumbnailUrl || null,
         type: "thumbnail",
         quality: "JPG",
         filePath: fp || null,
@@ -1535,7 +832,7 @@ export default function App() {
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && fetchInfo(url)}
-                  placeholder="Paste YouTube URL..."
+                  placeholder="Paste URL..."
                   style={{ ...inputBase(C) }}
                 />
                 {url && (
@@ -1717,7 +1014,7 @@ export default function App() {
               >
                 <Download size={40} strokeWidth={1.2} />
                 <p style={{ fontSize: 13, margin: 0 }}>
-                  Paste a YouTube URL to get started
+                  Paste a URL to get started
                 </p>
               </div>
             )}
@@ -1758,16 +1055,34 @@ export default function App() {
                       position: "relative",
                     }}
                   >
-                    {videoInfo.thumbnail && (
+                    {bestThumbnailUrl && !thumbnailLoadError ? (
                       <img
-                        src={videoInfo.thumbnail}
+                        src={bestThumbnailUrl}
                         alt=""
+                        onError={() => setThumbnailLoadError(true)}
                         style={{
                           width: "100%",
                           height: "100%",
                           objectFit: "cover",
                         }}
                       />
+                    ) : (
+                      <div
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 6,
+                          color: C.textFaint,
+                          background: C.surfaceHigh,
+                        }}
+                      >
+                        <ImageIcon size={16} />
+                        <span style={{ fontSize: 11 }}>No thumbnail</span>
+                      </div>
                     )}
                   </div>
 
@@ -1927,8 +1242,8 @@ export default function App() {
                     selectedContainer={selectedContainer}
                     allowedContainers={allowedContainers}
                     containerWarning={containerWarning}
-                    FieldLabel={FieldLabel}
-                    SelectField={SelectField}
+                    videoAudioTrackId={videoAudioTrackId}
+                    setVideoAudioTrackId={setVideoAudioTrackId}
                     audioContainer={audioContainer}
                     setAudioContainer={setAudioContainer}
                     audioQuality={audioQuality}
@@ -1949,12 +1264,8 @@ export default function App() {
                     setErrorStatus={setErrorStatus}
                     duration={duration}
                     formatDuration={formatDuration}
-                    RangeSlider={RangeSlider}
                     sliderStart={sliderStart}
                     sliderEnd={sliderEnd}
-                    pill={pill}
-                    inputBase={inputBase}
-                    FieldLabel={FieldLabel}
                   />
 
                   <SavePathPicker
@@ -1962,7 +1273,6 @@ export default function App() {
                     downloading={downloading}
                     pickFolder={pickFolder}
                     savePath={savePath}
-                    FieldLabel={FieldLabel}
                   />
 
                   <DownloadActions
@@ -1976,7 +1286,6 @@ export default function App() {
                     savePath={savePath}
                     dlLabel={dlLabel}
                     errorStatus={errorStatus}
-                    Btn={Btn}
                   />
                 </div>
               </div>
@@ -1987,4 +1296,5 @@ export default function App() {
     </ThemeCtx.Provider>
   );
 }
+
 
