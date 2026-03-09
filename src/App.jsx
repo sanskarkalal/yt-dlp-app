@@ -29,7 +29,13 @@ import ClipControls from "./components/ClipControls";
 import SavePathPicker from "./components/SavePathPicker";
 import DownloadActions from "./components/DownloadActions";
 import HistoryDrawer from "./components/HistoryDrawer";
-import { Badge, Btn, IconBtn, inputBase, pill } from "./components/ui/Primitives";
+import {
+  Badge,
+  Btn,
+  IconBtn,
+  inputBase,
+  pill,
+} from "./components/ui/Primitives";
 
 const SAVE_PATH_STORAGE_KEY = "seedhe_download_save_path";
 
@@ -44,7 +50,9 @@ function normalizeThumbnailUrl(u) {
 
 function getThumbnailCandidates(info) {
   if (!info) return null;
-  const sortedThumbUrls = (Array.isArray(info.thumbnails) ? info.thumbnails : [])
+  const sortedThumbUrls = (
+    Array.isArray(info.thumbnails) ? info.thumbnails : []
+  )
     .filter((t) => t?.url)
     .sort(
       (a, b) =>
@@ -151,13 +159,8 @@ export default function App() {
       : duration > 0
         ? duration
         : null;
-  const bestAudioAbr = Math.max(
-    ...audioTracks.map((t) => t.abr || 0),
-    0,
-  );
-  const estimatedAudioKbps = selRawFmt?.hasMuxedAudio
-    ? 0
-    : bestAudioAbr || 128;
+  const bestAudioAbr = Math.max(...audioTracks.map((t) => t.abr || 0), 0);
+  const estimatedAudioKbps = selRawFmt?.hasMuxedAudio ? 0 : bestAudioAbr || 128;
   const estimatedTotalKbps = (selRawFmt?.bitrate || 0) + estimatedAudioKbps;
   const estimateUncertainty = selRawFmt?.hasMuxedAudio ? 0.22 : 0.3;
   const estimatedSizeLabel = estimateSizeRangeLabel(
@@ -167,7 +170,8 @@ export default function App() {
   );
   const thumbnailCandidates = getThumbnailCandidates(videoInfo) || [];
   const bestThumbnailUrl = thumbnailCandidates[0] || null;
-  const activeThumbnailUrl = thumbnailCandidates[thumbnailCandidateIndex] || null;
+  const activeThumbnailUrl =
+    thumbnailCandidates[thumbnailCandidateIndex] || null;
 
   useEffect(() => {
     progressRef.current = progress;
@@ -572,7 +576,8 @@ export default function App() {
           ? "track AUTO"
           : null;
       const forcePreferredAudioTrack =
-        !audioOnly && Boolean(isManualVideoAudioTrack && effectiveVideoAudioTrackId);
+        !audioOnly &&
+        Boolean(isManualVideoAudioTrack && effectiveVideoAudioTrackId);
       const hasMuxed = audioOnly ? (selRaw?.hasMuxedAudio ?? false) : false;
       const vfid =
         selRaw?.format_id ??
@@ -792,7 +797,7 @@ export default function App() {
                   whiteSpace: "nowrap",
                 }}
               >
-                Seedhe Download
+                Seedhe Download by Sanskar
               </span>
               <img
                 src={iconPng}
@@ -912,31 +917,31 @@ export default function App() {
                   />
                   Signed in
                 </button>
-                ) : (
-                  <button
-                    disabled={loggingIn}
-                    onClick={() => {
-                      const nextUrl = url || null;
-                      setPendingUrl(nextUrl);
-                      setBotDetected(false);
-                      setShowLoginPrompt(false);
-                      handleYouTubeLogin(nextUrl);
-                    }}
-                    title="Click to sign in"
-                    style={{
-                      display: "inline-flex",
+              ) : (
+                <button
+                  disabled={loggingIn}
+                  onClick={() => {
+                    const nextUrl = url || null;
+                    setPendingUrl(nextUrl);
+                    setBotDetected(false);
+                    setShowLoginPrompt(false);
+                    handleYouTubeLogin(nextUrl);
+                  }}
+                  title="Click to sign in"
+                  style={{
+                    display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
                     padding: "5px 10px",
-                      borderRadius: 8,
-                      background: C.surfaceHigh,
-                      border: `1px solid ${C.border}`,
-                      color: C.textFaint,
-                      fontSize: 11,
-                      cursor: loggingIn ? "not-allowed" : "pointer",
-                      opacity: loggingIn ? 0.6 : 1,
-                    }}
-                  >
+                    borderRadius: 8,
+                    background: C.surfaceHigh,
+                    border: `1px solid ${C.border}`,
+                    color: C.textFaint,
+                    fontSize: 11,
+                    cursor: loggingIn ? "not-allowed" : "pointer",
+                    opacity: loggingIn ? 0.6 : 1,
+                  }}
+                >
                   <div
                     style={{
                       width: 6,
@@ -977,12 +982,12 @@ export default function App() {
                   <button
                     onClick={() => {
                       setUrl("");
-                        setVideoInfo(null);
-                        setStatus("");
-                        setBotDetected(false);
-                        setShowLoginPrompt(false);
-                        setPendingUrl(null);
-                      }}
+                      setVideoInfo(null);
+                      setStatus("");
+                      setBotDetected(false);
+                      setShowLoginPrompt(false);
+                      setPendingUrl(null);
+                    }}
                     style={{
                       background: "none",
                       border: "none",
@@ -1139,19 +1144,19 @@ export default function App() {
                       color: C.textPrimary,
                       margin: 0,
                     }}
-                    >
-                      Age-restricted content
-                    </p>
-                    <p
+                  >
+                    Age-restricted content
+                  </p>
+                  <p
                     style={{
                       fontSize: 12,
                       color: C.textFaint,
                       margin: "3px 0 0",
                     }}
-                    >
-                      Sign in to your YouTube account to access this video.
-                    </p>
-                  </div>
+                  >
+                    Sign in to your YouTube account to access this video.
+                  </p>
+                </div>
                 <Btn
                   variant="ghost"
                   onClick={handleYouTubeLogin}
