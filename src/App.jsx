@@ -1130,13 +1130,14 @@ export default function App() {
           f.codec === selectedCodec &&
           f.bitrate === selectedBitrate,
       );
+      const hasMuxed = selRaw?.hasMuxedAudio ?? false;
       const vfid =
         selRaw?.format_id ??
         videoInfo?.rawFormats
           ?.filter((f) => f.height === selectedHeight)
           .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0]?.format_id;
       const fmtId = vfid
-        ? selRaw?.hasMuxedAudio
+        ? hasMuxed
           ? vfid
           : `${vfid}+bestaudio/best`
         : "bestvideo+bestaudio/best";
@@ -1152,6 +1153,7 @@ export default function App() {
         audioQuality,
         audioTrackId: audioOnly ? audioTrackId : null,
         audioContainer: audioOnly ? audioContainer : null,
+        hasMuxedAudio: hasMuxed,
       });
       if (result?.cancelled) return;
       setProgress(100);

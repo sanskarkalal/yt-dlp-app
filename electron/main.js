@@ -68,24 +68,6 @@ function sanitizeOutputPath(filePath, saveDir) {
     // Use readdirSync — fs.existsSync lies with emoji/unicode on macOS
     const dirFiles = fs.readdirSync(dir);
     const originalBasename = path.basename(normalized);
-    console.log(
-      "[sanitize] looking for:",
-      originalBasename,
-      "in dir, files:",
-      dirFiles,
-    );
-    const stunnMatch = dirFiles.filter((f) =>
-      f.toLowerCase().includes("stunning"),
-    );
-    stunnMatch.forEach((f) => {
-      const fExt = path.extname(f);
-      const fBase = path.basename(f, fExt);
-      console.log(
-        "[sanitize] disk sanitized:",
-        JSON.stringify(sanitizeFilename(fBase) + fExt),
-      );
-    });
-    console.log("[sanitize] newName:", JSON.stringify(newName));
 
     const normalize = (s) => s.toLowerCase().replace(/[^a-z0-9.]/g, "");
     const freshFile = dirFiles.find((f) => {
@@ -98,23 +80,14 @@ function sanitizeOutputPath(filePath, saveDir) {
         normalize(fSanitized) === normalize(newName)
       );
     });
-    console.log("[sanitize] freshFile:", freshFile);
-    console.log("[sanitize] join:", path.join(dir, freshFile || ""));
-    console.log("[sanitize] newPath:", newPath);
-    console.log(
-      "[sanitize] equal?",
-      freshFile ? path.join(dir, freshFile) === newPath : "n/a",
-    );
     if (freshFile && path.join(dir, freshFile) !== newPath) {
       if (fs.existsSync(newPath)) fs.unlinkSync(newPath);
       fs.renameSync(path.join(dir, freshFile), newPath);
-      console.log("[sanitize] renamed:", freshFile, "->", newName);
       return newPath;
     }
 
     // Priority 2: file already exists at the sanitized path (already clean)
     if (fs.existsSync(newPath)) {
-      console.log("[sanitize] already clean:", newPath);
       return newPath;
     }
 
@@ -130,7 +103,6 @@ function sanitizeOutputPath(filePath, saveDir) {
       const actualPath = path.join(dir, actualFile);
       if (fs.existsSync(newPath)) fs.unlinkSync(newPath);
       fs.renameSync(actualPath, newPath);
-      console.log("[sanitize] renamed via scan:", actualFile, "->", newName);
     }
 
     return newPath;
@@ -767,6 +739,7 @@ ipcMain.handle("get-video-info", async (_, url) => {
             bitrate,
             fps: f.fps ? Math.round(f.fps) : null,
             ext: f.ext,
+            hasMuxedAudio: f.acodec && f.acodec !== "none",
             key,
           });
         }
@@ -921,6 +894,7 @@ ipcMain.handle(
       audioQuality,
       audioTrackId,
       audioContainer,
+      hasMuxedAudio,
     },
   ) => {
     return new Promise((resolve, reject) => {
@@ -989,12 +963,22 @@ ipcMain.handle(
       );
       console.log("[download] ffmpeg path:", getFfmpegBin());
       console.log("[download] ffmpeg exists:", fs.existsSync(getFfmpegBin()));
+
       const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
       activeDownload = proc;
       activeDownloadSavePath = savePath;
 
       let downloadPhase = 0;
       let outputFilePath = null;
+
+      // Determine expected phases upfront for accurate progress scaling:
+      // - audioOnly: 1 download phase + ExtractAudio conversion
+      // - video muxed (audio+video in one stream): 1 download phase, no Merger
+      // - video (no clip): 2 download phases (video stream + audio stream) + Merger
+      // - video clip: 2 download phases + ffmpeg trim
+      // - audio clip: 1 download phase + ExtractAudio + ffmpeg trim
+      let expectedPhases = audioOnly || hasMuxedAudio ? 1 : 2;
+      // phaseSize is recalculated dynamically in case expectedPhases gets adjusted
 
       proc.stdout.on("data", (data) => {
         const line = data.toString();
@@ -1032,26 +1016,72 @@ ipcMain.handle(
         }
 
         if (line.includes("[download] Destination:")) {
-          downloadPhase = (downloadPhase || 0) + 1;
+          const actualPhase = (downloadPhase || 0) + 1;
+          downloadPhase = actualPhase;
+          // Dynamically grow expectedPhases if reality has more phases than predicted
+          if (actualPhase > expectedPhases) expectedPhases = actualPhase;
+          // Reset per-phase HLS state when a new download phase begins
+          hlsTotalSegs[downloadPhase - 1] = null;
+          hlsDoneSegs[downloadPhase - 1] = 0;
         }
-        if (line.includes("[Merger]") || line.includes("[ExtractAudio]")) {
-          win.webContents.send("download-progress", 95);
+
+        // ffmpeg/merge phase started — bump to 88% to show work is happening
+        if (
+          line.includes("[Merger]") ||
+          line.includes("[ExtractAudio]") ||
+          line.includes("[ffmpeg]")
+        ) {
+          win.webContents.send("download-progress", 88);
         }
 
         const match = line.match(/\[download\]\s+([\d.]+)%/);
         if (match) {
           const pct = parseFloat(match[1]);
-          let scaled;
-          if (downloadPhase <= 1) {
-            scaled = Math.round(pct * 0.5);
-          } else {
-            scaled = Math.round(50 + pct * 0.45);
-          }
-          win.webContents.send("download-progress", scaled);
+          const phaseIndex = Math.max(0, downloadPhase - 1);
+          const scaled = Math.round(
+            phaseIndex * (85 / expectedPhases) +
+              (pct / 100) * (85 / expectedPhases),
+          );
+          win.webContents.send("download-progress", Math.min(scaled, 85));
         }
       });
 
-      proc.stderr.on("data", (d) => console.error(d.toString()));
+      // HLS segment tracking state — grows dynamically if phases exceed prediction
+      const hlsTotalSegs = [];
+      const hlsDoneSegs = [];
+
+      // Regex matching any HLS/DASH segment file yt-dlp opens for reading
+      // Covers: .ts, .m4s, .fmp4, .mp4, .aac, .m4a, .webm segments
+      const segReadRe =
+        /Opening '.*\.(ts|m4s|fmp4|mp4|aac|m4a|webm).*' for reading/;
+
+      proc.stderr.on("data", (d) => {
+        const line = d.toString();
+        console.error(line);
+        const phaseIndex = Math.max(0, downloadPhase - 1);
+
+        // Extract total segment count from URL params:
+        // gosq/NNN (YouTube HLS) or nsegs=NNN or EXT-X-MEDIA-SEQUENCE patterns
+        if (hlsTotalSegs[phaseIndex] === null) {
+          const gosqMatch = line.match(/gosq[/=](\d+)/);
+          if (gosqMatch) {
+            hlsTotalSegs[phaseIndex] = parseInt(gosqMatch[1], 10);
+          }
+        }
+
+        // Count each fetched segment — fires for any container type
+        if (segReadRe.test(line)) {
+          hlsDoneSegs[phaseIndex]++;
+          const total = hlsTotalSegs[phaseIndex];
+          if (total && total > 0) {
+            const pct = hlsDoneSegs[phaseIndex] / total;
+            const scaled = Math.round(
+              phaseIndex * (85 / expectedPhases) + pct * (85 / expectedPhases),
+            );
+            win.webContents.send("download-progress", Math.min(scaled, 85));
+          }
+        }
+      });
 
       proc.on("error", (err) => {
         activeDownload = null;
