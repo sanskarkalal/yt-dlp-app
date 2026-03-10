@@ -38,6 +38,7 @@ import {
 } from "./components/ui/Primitives";
 
 const SAVE_PATH_STORAGE_KEY = "seedhe_download_save_path";
+const THEME_STORAGE_KEY = "seedhe_theme_mode";
 
 function normalizeThumbnailUrl(u) {
   if (!u || typeof u !== "string") return null;
@@ -67,7 +68,12 @@ function getThumbnailCandidates(info) {
 }
 
 export default function App() {
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(() => {
+    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    if (savedTheme === "light") return false;
+    if (savedTheme === "dark") return true;
+    return true;
+  });
   const C = darkMode ? DARK : LIGHT;
   const [url, setUrl] = useState("");
   const [videoInfo, setVideoInfo] = useState(null);
@@ -207,6 +213,10 @@ export default function App() {
       setCheckingAppUpdate(false);
     });
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(THEME_STORAGE_KEY, darkMode ? "dark" : "light");
+  }, [darkMode]);
 
   const checkForAppUpdate = async () => {
     try {
