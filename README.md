@@ -25,6 +25,12 @@ Download the latest installer from [Releases](../../releases).
 - Windows: use the `*Setup*.exe` installer
 - macOS: use the `.dmg` installer
 
+If macOS blocks launch for an unsigned/local build, run:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/seedhe download by sanskar.app"
+```
+
 ## Run from source (developers)
 
 ### Prerequisites
