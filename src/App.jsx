@@ -86,6 +86,8 @@ export default function App() {
   const [cookiesOk, setCookiesOk] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [pendingUrl, setPendingUrl] = useState(null);
   const [clipStart, setClipStart] = useState("");
   const [clipEnd, setClipEnd] = useState("");
@@ -351,7 +353,7 @@ export default function App() {
     setBotDetected(false);
     setErrorStatus("");
     try {
-      const ok = await window.electronAPI.openYouTubeLogin();
+      const ok = await window.electronAPI.openYouTubeLogin({ fresh: true });
       if (ok) {
         setCookiesOk(true);
         const urlToFetch = targetUrl || pendingUrl;
@@ -364,6 +366,20 @@ export default function App() {
       setErrorStatus("Error: " + err.message);
     } finally {
       setLoggingIn(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await window.electronAPI.clearCookies();
+      setCookiesOk(false);
+      setPendingUrl(null);
+      setShowLoginPrompt(false);
+      setBotDetected(false);
+    } finally {
+      setSigningOut(false);
+      setShowSignOutConfirm(false);
     }
   };
 
@@ -719,6 +735,108 @@ export default function App() {
           open={historyOpen}
           onClose={() => setHistoryOpen(false)}
         />
+        {showSignOutConfirm && (
+          <div
+            onClick={() => !signingOut && setShowSignOutConfirm(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 60,
+              background: "rgba(0,0,0,0.65)",
+              backdropFilter: "blur(5px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 20,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: "min(420px, 100%)",
+                borderRadius: 14,
+                background: C.surface,
+                border: `1px solid ${C.border}`,
+                boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
+                padding: 16,
+                display: "flex",
+                flexDirection: "column",
+                gap: 14,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Lock size={14} style={{ color: C.textMuted }} />
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: C.textPrimary,
+                  }}
+                >
+                  Sign out?
+                </span>
+              </div>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 12,
+                  color: C.textFaint,
+                  lineHeight: 1.55,
+                }}
+              >
+                This will clear your saved YouTube cookies. Next sign in will
+                open a fresh login flow.
+              </p>
+              <div
+                style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
+              >
+                <button
+                  onClick={() => setShowSignOutConfirm(false)}
+                  disabled={signingOut}
+                  style={{
+                    height: 34,
+                    padding: "0 12px",
+                    borderRadius: 8,
+                    border: `1px solid ${C.border}`,
+                    background: C.surfaceHigh,
+                    color: C.textMuted,
+                    fontSize: 12,
+                    cursor: signingOut ? "default" : "pointer",
+                    opacity: signingOut ? 0.7 : 1,
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSignOut}
+                  disabled={signingOut}
+                  style={{
+                    height: 34,
+                    padding: "0 12px",
+                    borderRadius: 8,
+                    border: "1px solid rgba(248,113,113,0.3)",
+                    background: "rgba(220,38,38,0.15)",
+                    color: "#fca5a5",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    cursor: signingOut ? "default" : "pointer",
+                    opacity: signingOut ? 0.75 : 1,
+                  }}
+                >
+                  {signingOut ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <X size={13} />
+                  )}
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div
           style={{
@@ -803,7 +921,7 @@ export default function App() {
                   whiteSpace: "nowrap",
                 }}
               >
-                Seedhe Download by Sanskar
+                Seedhe Download
               </span>
               <img
                 src={iconPng}
@@ -896,11 +1014,8 @@ export default function App() {
               </IconBtn>
               {cookiesOk ? (
                 <button
-                  onClick={async () => {
-                    await window.electronAPI.clearCookies();
-                    setCookiesOk(false);
-                  }}
-                  title="Signed in — click to sign out"
+                  onClick={() => setShowSignOutConfirm(true)}
+                  title="Signed in - click to sign out"
                   style={{
                     display: "inline-flex",
                     alignItems: "center",

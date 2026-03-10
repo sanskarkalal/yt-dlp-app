@@ -1028,15 +1028,29 @@ app.on("window-all-closed", () => {
 // YouTube login window
 // ---------------------------------------------------------------------------
 
-function openYouTubeLogin() {
+function openYouTubeLogin(options = {}) {
+  const fresh = Boolean(options?.fresh);
   return new Promise((resolve) => {
+    if (fresh) {
+      const p = getCookiesPath();
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+      if (fs.existsSync(LEGACY_COOKIES_PATH)) fs.unlinkSync(LEGACY_COOKIES_PATH);
+    }
+
+    const partition = fresh
+      ? `signin-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      : undefined;
     const loginWin = new BrowserWindow({
       width: 500,
       height: 650,
       title: "Sign in to YouTube",
       parent: mainWindow,
       modal: true,
-      webPreferences: { contextIsolation: true, nodeIntegration: false },
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        ...(partition ? { partition } : {}),
+      },
     });
 
     loginWin.loadURL(
@@ -1128,8 +1142,8 @@ function openYouTubeLogin() {
   });
 }
 
-ipcMain.handle("open-youtube-login", async () => {
-  const success = await openYouTubeLogin();
+ipcMain.handle("open-youtube-login", async (_event, options = {}) => {
+  const success = await openYouTubeLogin(options);
   if (mainWindow && !mainWindow.isDestroyed())
     mainWindow.webContents.send("cookies-status", success);
   return success;

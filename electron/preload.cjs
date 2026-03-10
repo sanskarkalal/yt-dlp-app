@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   download: (opts) => ipcRenderer.invoke("download", opts),
   cancelDownload: () => ipcRenderer.invoke("cancel-download"),
   getCookiesStatus: () => ipcRenderer.invoke("get-cookies-status"),
-  openYouTubeLogin: () => ipcRenderer.invoke("open-youtube-login"),
+  openYouTubeLogin: (opts) => ipcRenderer.invoke("open-youtube-login", opts),
   clearCookies: () => ipcRenderer.invoke("clear-cookies"),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
   getAppUpdateState: () => ipcRenderer.invoke("get-app-update-state"),

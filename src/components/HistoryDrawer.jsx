@@ -360,6 +360,9 @@ export default function HistoryDrawer({ open, onClose }) {
                 Clear all
               </button>
             ) : null}
+            <IconBtn title="Close history" onClick={onClose}>
+              <X size={13} />
+            </IconBtn>
           </div>
         </div>
 
