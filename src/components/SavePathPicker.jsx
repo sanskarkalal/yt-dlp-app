@@ -20,18 +20,34 @@ export default function SavePathPicker({
           height: 40,
           padding: "0 12px",
           background: C.surface,
-          border: `1px solid ${C.border}`,
-          borderRadius: 12,
+          border: `${C.borderW} solid ${C.border}`,
+          borderRadius: C.radius,
           cursor: downloading ? "not-allowed" : "pointer",
           color: C.textMuted,
           fontSize: 12,
+          fontWeight: C.neoMode ? 700 : 400,
           textAlign: "left",
-          transition: "border-color 0.15s",
+          transition: C.neoMode ? "all 0.1s ease-out" : "border-color 0.15s",
           width: "100%",
           opacity: downloading ? 0.4 : 1,
+          boxShadow: C.neoMode ? C.shadowSurface : "none",
         }}
-        onMouseEnter={(e) => (e.currentTarget.style.borderColor = C.borderHover)}
-        onMouseLeave={(e) => (e.currentTarget.style.borderColor = C.border)}
+        onMouseEnter={(e) => {
+          if (C.neoMode) {
+            e.currentTarget.style.boxShadow = C.shadowSurfaceHover;
+            e.currentTarget.style.transform = "translate(-2px, -2px)";
+          } else {
+            e.currentTarget.style.borderColor = C.borderHover;
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (C.neoMode) {
+            e.currentTarget.style.boxShadow = C.shadowSurface;
+            e.currentTarget.style.transform = "none";
+          } else {
+            e.currentTarget.style.borderColor = C.border;
+          }
+        }}
       >
         <FolderOpen size={15} style={{ color: C.textFaint, flexShrink: 0 }} />
         <span

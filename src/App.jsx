@@ -720,15 +720,16 @@ export default function App() {
     <ThemeCtx.Provider value={C}>
       <style>{`input::placeholder { color: ${C.textMuted}; opacity: 1; }`}</style>
       <div
+        data-theme={darkMode ? "dark" : "light"}
         style={{
           height: "100vh",
           width: "100vw",
-          background: C.bg,
+          background: C.gradBg,
           color: C.textPrimary,
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          fontFamily: "'DM Sans',system-ui,sans-serif",
+          fontFamily: C.fontDisplay,
         }}
       >
         <HistoryDrawer
@@ -742,8 +743,8 @@ export default function App() {
               position: "fixed",
               inset: 0,
               zIndex: 60,
-              background: "rgba(0,0,0,0.65)",
-              backdropFilter: "blur(5px)",
+              background: C.neoMode ? "rgba(0,0,0,0.38)" : "rgba(2,6,23,0.72)",
+              backdropFilter: C.neoMode ? "none" : "blur(5px)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -754,18 +755,39 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
               style={{
                 width: "min(420px, 100%)",
-                borderRadius: 14,
-                background: C.surface,
-                border: `1px solid ${C.border}`,
-                boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
+                borderRadius: C.neoMode ? 0 : 14,
+                background: C.neoMode ? "#FFF7DB" : C.surface,
+                border: `${C.neoMode ? "4px" : "1px"} solid ${C.border}`,
+                boxShadow: C.neoMode
+                  ? "10px 10px 0px 0px #000000"
+                  : "0 24px 60px rgba(0,0,0,0.45)",
                 padding: 16,
                 display: "flex",
                 flexDirection: "column",
                 gap: 14,
+                fontFamily: C.fontDisplay,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Lock size={14} style={{ color: C.textMuted }} />
+                <div
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: C.neoMode ? 0 : 8,
+                    background: C.neoMode ? "#FFD93D" : "rgba(245,158,11,0.15)",
+                    border: `${C.neoMode ? "2px" : "1px"} solid ${
+                      C.neoMode ? "#000000" : "rgba(245,158,11,0.3)"
+                    }`,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Lock
+                    size={13}
+                    style={{ color: C.neoMode ? "#000000" : "#fbbf24" }}
+                  />
+                </div>
                 <span
                   style={{
                     fontSize: 14,
@@ -790,40 +812,30 @@ export default function App() {
               <div
                 style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
               >
-                <button
+                <Btn
                   onClick={() => setShowSignOutConfirm(false)}
                   disabled={signingOut}
+                  variant="ghost"
                   style={{
-                    height: 34,
+                    height: C.neoMode ? 38 : 34,
                     padding: "0 12px",
-                    borderRadius: 8,
-                    border: `1px solid ${C.border}`,
-                    background: C.surfaceHigh,
-                    color: C.textMuted,
                     fontSize: 12,
-                    cursor: signingOut ? "default" : "pointer",
-                    opacity: signingOut ? 0.7 : 1,
+                    textTransform: C.neoMode ? undefined : "none",
+                    letterSpacing: C.neoMode ? undefined : "-0.01em",
                   }}
                 >
                   Cancel
-                </button>
-                <button
+                </Btn>
+                <Btn
                   onClick={handleSignOut}
                   disabled={signingOut}
+                  variant="danger"
                   style={{
-                    height: 34,
+                    height: C.neoMode ? 38 : 34,
                     padding: "0 12px",
-                    borderRadius: 8,
-                    border: "1px solid rgba(248,113,113,0.3)",
-                    background: "rgba(220,38,38,0.15)",
-                    color: "#fca5a5",
                     fontSize: 12,
-                    fontWeight: 600,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    cursor: signingOut ? "default" : "pointer",
-                    opacity: signingOut ? 0.75 : 1,
+                    textTransform: C.neoMode ? undefined : "none",
+                    letterSpacing: C.neoMode ? undefined : "-0.01em",
                   }}
                 >
                   {signingOut ? (
@@ -832,45 +844,81 @@ export default function App() {
                     <X size={13} />
                   )}
                   Sign out
-                </button>
+                </Btn>
               </div>
             </div>
           </div>
         )}
 
+        {/* ── Ambient lighting layer ── */}
         <div
           style={{
             position: "fixed",
             inset: 0,
             pointerEvents: "none",
             zIndex: 0,
+            overflow: "hidden",
           }}
         >
+          {/* Primary blob — top-left, large indigo pool */}
           <div
+            className="blob-1"
             style={{
               position: "absolute",
-              top: -120,
-              left: -80,
-              width: 500,
-              height: 400,
-              background:
-                "radial-gradient(ellipse,rgba(124,58,237,0.08) 0%,transparent 70%)",
+              top: -200,
+              left: -150,
+              width: 900,
+              height: 700,
+              background: C.blobA,
+              filter: "blur(120px)",
+              willChange: "transform",
             }}
           />
+          {/* Secondary blob — bottom-right */}
           <div
+            className="blob-2"
             style={{
               position: "absolute",
-              bottom: 0,
-              right: -60,
-              width: 400,
-              height: 350,
-              background:
-                "radial-gradient(ellipse,rgba(219,39,119,0.06) 0%,transparent 70%)",
+              bottom: -180,
+              right: -120,
+              width: 700,
+              height: 600,
+              background: C.blobB,
+              filter: "blur(100px)",
+              willChange: "transform",
+            }}
+          />
+          {/* Neo-brutalism halftone dot pattern */}
+          {C.neoMode && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                backgroundImage: "radial-gradient(#000000 1px, transparent 1px)",
+                backgroundSize: "24px 24px",
+                opacity: 0.05,
+                pointerEvents: "none",
+              }}
+            />
+          )}
+          {/* Tertiary blob — center, subtle */}
+          <div
+            className="blob-3"
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              width: 500,
+              height: 400,
+              background: C.blobC,
+              filter: "blur(80px)",
+              willChange: "transform",
             }}
           />
         </div>
 
         <div
+          className="content-fade-in"
           style={{
             position: "relative",
             zIndex: 10,
@@ -888,7 +936,7 @@ export default function App() {
               padding: "10px 24px",
               flexShrink: 0,
               WebkitAppRegion: "drag",
-              background: C.bg,
+              background: "transparent",
             }}
           >
             <div />
@@ -909,15 +957,25 @@ export default function App() {
               />
               <span
                 key={darkMode ? "dark" : "light"}
-                style={{
+                style={C.neoMode ? {
+                  fontSize: 11,
+                  fontWeight: 900,
+                  letterSpacing: "0.18em",
+                  textTransform: "uppercase",
+                  color: "#000000",
+                  fontFamily: C.fontDisplay,
+                  whiteSpace: "nowrap",
+                } : {
                   fontSize: 11,
                   fontWeight: 800,
                   letterSpacing: "0.18em",
                   textTransform: "uppercase",
                   background: C.gradAccent,
+                  backgroundSize: "200% 200%",
+                  animation: `gradientPan ${C.gradAccentAnimDuration} ease infinite`,
                   WebkitBackgroundClip: "text",
                   WebkitTextFillColor: "transparent",
-                  fontStyle: "italic",
+                  fontFamily: C.fontDisplay,
                   whiteSpace: "nowrap",
                 }}
               >
@@ -947,11 +1005,13 @@ export default function App() {
                   alignItems: "center",
                   gap: 6,
                   padding: "5px 10px",
-                  borderRadius: 8,
+                  borderRadius: C.radius,
                   background: C.surfaceHigh,
-                  border: `1px solid ${C.border}`,
-                  color: C.textFaint,
+                  border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
+                  boxShadow: C.neoMode ? "3px 3px 0px 0px #000000" : "none",
+                  color: C.neoMode ? C.textPrimary : C.textFaint,
                   fontSize: 11,
+                  fontWeight: C.neoMode ? 700 : 400,
                   cursor: isUpdateBusy ? "default" : "pointer",
                   opacity: isUpdateBusy ? 0.75 : 1,
                   maxWidth: 220,
@@ -989,11 +1049,13 @@ export default function App() {
                     alignItems: "center",
                     gap: 6,
                     padding: "5px 10px",
-                    borderRadius: 8,
-                    background: "rgba(16,185,129,0.12)",
-                    border: "1px solid rgba(16,185,129,0.3)",
-                    color: "#34d399",
+                    borderRadius: C.radius,
+                    background: C.neoMode ? "#86efac" : "rgba(16,185,129,0.12)",
+                    border: C.neoMode ? "2px solid #000000" : "1px solid rgba(16,185,129,0.3)",
+                    boxShadow: C.neoMode ? "3px 3px 0px 0px #000000" : "none",
+                    color: C.neoMode ? "#000000" : "#34d399",
                     fontSize: 11,
+                    fontWeight: C.neoMode ? 700 : 400,
                     cursor: isInstallingUpdate ? "default" : "pointer",
                     opacity: isInstallingUpdate ? 0.75 : 1,
                   }}
@@ -1020,10 +1082,11 @@ export default function App() {
                     alignItems: "center",
                     gap: 6,
                     padding: "5px 10px",
-                    borderRadius: 8,
-                    background: "rgba(16,185,129,0.1)",
-                    border: "1px solid rgba(16,185,129,0.2)",
-                    color: "#34d399",
+                    borderRadius: C.radius,
+                    background: C.neoMode ? "#86efac" : "rgba(16,185,129,0.1)",
+                    border: C.neoMode ? "2px solid #000000" : "1px solid rgba(16,185,129,0.2)",
+                    boxShadow: C.neoMode ? "3px 3px 0px 0px #000000" : "none",
+                    color: C.neoMode ? "#000000" : "#34d399",
                     fontSize: 11,
                     fontWeight: 600,
                     cursor: "pointer",
@@ -1033,8 +1096,8 @@ export default function App() {
                     style={{
                       width: 6,
                       height: 6,
-                      borderRadius: "50%",
-                      background: "#34d399",
+                      borderRadius: C.neoMode ? 0 : "50%",
+                      background: C.neoMode ? "#000000" : "#34d399",
                     }}
                   />
                   Signed in
@@ -1055,11 +1118,13 @@ export default function App() {
                     alignItems: "center",
                     gap: 6,
                     padding: "5px 10px",
-                    borderRadius: 8,
+                    borderRadius: C.radius,
                     background: C.surfaceHigh,
-                    border: `1px solid ${C.border}`,
-                    color: C.textFaint,
+                    border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
+                    boxShadow: C.neoMode ? "3px 3px 0px 0px #000000" : "none",
+                    color: C.neoMode ? C.textPrimary : C.textFaint,
                     fontSize: 11,
+                    fontWeight: C.neoMode ? 700 : 400,
                     cursor: loggingIn ? "not-allowed" : "pointer",
                     opacity: loggingIn ? 0.6 : 1,
                   }}
@@ -1068,7 +1133,7 @@ export default function App() {
                     style={{
                       width: 6,
                       height: 6,
-                      borderRadius: "50%",
+                      borderRadius: C.neoMode ? 0 : "50%",
                       background: C.border,
                     }}
                   />
@@ -1078,7 +1143,7 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ height: 1, background: C.border, flexShrink: 0 }} />
+          <div style={{ height: C.neoMode ? 3 : 1, background: C.border, flexShrink: 0 }} />
 
           <div
             style={{
@@ -1166,9 +1231,10 @@ export default function App() {
                   alignItems: "flex-start",
                   gap: 8,
                   padding: "10px 12px",
-                  borderRadius: 10,
+                  borderRadius: C.radius,
                   background: C.surface,
-                  border: `1px solid ${C.border}`,
+                  border: `${C.borderW} solid ${C.border}`,
+                  boxShadow: C.neoMode ? C.shadowSurface : "none",
                 }}
               >
                 <Lock
@@ -1196,9 +1262,10 @@ export default function App() {
                   alignItems: "flex-start",
                   gap: 12,
                   padding: 14,
-                  background: "rgba(245,158,11,0.06)",
-                  border: "1px solid rgba(245,158,11,0.18)",
-                  borderRadius: 12,
+                  background: C.neoMode ? "#FFD93D" : "rgba(245,158,11,0.06)",
+                  border: C.neoMode ? "4px solid #000000" : "1px solid rgba(245,158,11,0.18)",
+                  borderRadius: C.radius,
+                  boxShadow: C.neoMode ? C.shadowSurface : "none",
                 }}
               >
                 <Bot
@@ -1209,8 +1276,8 @@ export default function App() {
                   <p
                     style={{
                       fontSize: 13,
-                      fontWeight: 600,
-                      color: "#fde68a",
+                      fontWeight: C.neoMode ? 900 : 600,
+                      color: C.neoMode ? "#000000" : "#fde68a",
                       margin: 0,
                     }}
                   >
@@ -1250,8 +1317,9 @@ export default function App() {
                   gap: 12,
                   padding: 14,
                   background: C.surface,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 12,
+                  border: `${C.borderW} solid ${C.border}`,
+                  borderRadius: C.radius,
+                  boxShadow: C.neoMode ? C.shadowSurface : "none",
                 }}
               >
                 <Lock
@@ -1389,46 +1457,23 @@ export default function App() {
                     )}
                   </div>
 
-                  <button
+                  <Btn
                     onClick={downloadThumbnail}
                     disabled={thumbDownloading || !savePath}
+                    variant={thumbDone ? "success" : "primary"}
+                    fullWidth
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 6,
-                      height: 32,
-                      width: "100%",
-                      borderRadius: 8,
+                      height: C.neoMode ? 38 : 32,
+                      padding: C.neoMode ? "0 10px" : "0 12px",
                       fontSize: 11,
-                      fontWeight: 600,
-                      cursor:
-                        thumbDownloading || !savePath
-                          ? "not-allowed"
-                          : "pointer",
-                      opacity: !savePath ? 0.4 : 1,
-                      transition: "all 0.15s",
-                      border: `1px solid ${
-                        thumbDone ? "rgba(16,185,129,0.3)" : C.border
-                      }`,
-                      background: thumbDone
-                        ? "rgba(16,185,129,0.1)"
-                        : C.surface,
-                      color: thumbDone ? "#34d399" : C.textMuted,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!thumbDone && savePath) {
-                        e.currentTarget.style.borderColor = C.borderHover;
-                        e.currentTarget.style.color = C.textPrimary;
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = thumbDone
-                        ? "rgba(16,185,129,0.3)"
-                        : C.border;
-                      e.currentTarget.style.color = thumbDone
-                        ? "#34d399"
-                        : C.textMuted;
+                      textTransform: C.neoMode ? undefined : "none",
+                      letterSpacing: C.neoMode ? undefined : "-0.01em",
+                      ...(thumbDone
+                        ? {
+                            textTransform: C.neoMode ? undefined : "none",
+                            letterSpacing: C.neoMode ? undefined : "-0.01em",
+                          }
+                        : null),
                     }}
                   >
                     {thumbDownloading ? (
@@ -1444,7 +1489,7 @@ export default function App() {
                         Save thumbnail
                       </>
                     )}
-                  </button>
+                  </Btn>
 
                   <div>
                     <p

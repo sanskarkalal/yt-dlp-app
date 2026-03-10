@@ -1,47 +1,119 @@
 @import "tailwindcss";
 
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
+  color-scheme: dark;
+  background-color: #030304;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+a { font-weight: 500; color: #F7931A; text-decoration: inherit; }
+a:hover { color: #FFD600; }
+
+/* ─────────────────────────────────────────────
+   Per-theme glow color variables
+   (used by surfaceBreath + handlePulse keyframes)
+───────────────────────────────────────────── */
+[data-theme="dark"] {
+  --glow-a: rgba(247,147,26,0.45);
+  --glow-b: rgba(234,88,12,0.22);
 }
-a:hover {
-  color: #535bf2;
-}
-@keyframes wiggle {
-  0%, 100% { transform: rotate(0deg); }
-  25% { transform: rotate(-8deg); }
-  75% { transform: rotate(8deg); }
-}
-@keyframes wiggle {
-  0%, 100% { transform: rotate(0deg); }
-  25% { transform: rotate(-6deg); }
-  75% { transform: rotate(6deg); }
+[data-theme="light"] {
+  /* Neo-brutalism: no glow animations */
+  --glow-a: rgba(0,0,0,0);
+  --glow-b: rgba(0,0,0,0);
+  background-color: #FFFDF5;
+  color-scheme: light;
 }
 
-.app-icon {
-  animation: wiggle 1.5s ease-in-out infinite;
+/* ─────────────────────────────────────────────
+   Keyframes
+───────────────────────────────────────────── */
+
+/* Gradient sweep — used on buttons, progress bar, title */
+@keyframes gradientPan {
+  0%, 100% { background-position: 0% 50%; }
+  50%       { background-position: 100% 50%; }
 }
-.rocket {
-  display: inline-block;
-  animation: wiggle 1.2s ease-in-out infinite;
-  transform-origin: center;
+
+/* Ambient blobs — cinematic floating light pools */
+@keyframes blobFloat1 {
+  0%, 100% { transform: translate(0px,   0px)  scale(1);    opacity: 0.9;  }
+  35%      { transform: translate(45px, -35px) scale(1.08); opacity: 1;    }
+  70%      { transform: translate(-22px, 22px) scale(0.94); opacity: 0.72; }
 }
+@keyframes blobFloat2 {
+  0%, 100% { transform: translate(0px,   0px)  scale(1);    opacity: 0.7;  }
+  42%      { transform: translate(-32px, 28px) scale(1.12); opacity: 0.92; }
+  78%      { transform: translate(28px, -20px) scale(0.91); opacity: 0.6;  }
+}
+@keyframes blobFloat3 {
+  0%, 100% { transform: translate(-50%, -50%) scale(1);    opacity: 0.5;  }
+  32%      { transform: translate(-50%, -50%) scale(1.1);  opacity: 0.72; }
+  68%      { transform: translate(-50%, -50%) scale(0.92); opacity: 0.38; }
+}
+
+/* Page mount */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0px);  }
+}
+
+/* Maximalism: pulsing glow brightness on buttons */
+@keyframes glowPulse {
+  0%, 100% { filter: brightness(1) saturate(1);    }
+  50%      { filter: brightness(1.18) saturate(1.2); }
+}
+
+/* Breathing glow on all stable surfaces — GPU via filter:drop-shadow */
+@keyframes surfaceBreath {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--glow-a)); }
+  50%       { filter: drop-shadow(0 0 9px var(--glow-a)) drop-shadow(0 0 18px var(--glow-b)); }
+}
+
+/* Slider handle / small element pulse */
+@keyframes handlePulse {
+  0%, 100% { filter: drop-shadow(0 0 3px var(--glow-a)); }
+  50%       { filter: drop-shadow(0 0 10px var(--glow-a)) drop-shadow(0 0 18px var(--glow-b)); }
+}
+
+/* Icon wiggle */
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg);  }
+  25%      { transform: rotate(-6deg); }
+  75%      { transform: rotate(6deg);  }
+}
+
+/* Neo-brutalism: slow decorative spin */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ─────────────────────────────────────────────
+   Animation utility classes
+───────────────────────────────────────────── */
+
+.app-icon { animation: wiggle 1.5s ease-in-out infinite; }
+.rocket   { display: inline-block; animation: wiggle 1.2s ease-in-out infinite; transform-origin: center; }
+.animate-spin-slow { animation: spin-slow 10s linear infinite; }
+
+/* Staggered blob timing — never sync */
+.blob-1 { animation: blobFloat1 9s  ease-in-out infinite;        }
+.blob-2 { animation: blobFloat2 13s ease-in-out infinite 1.8s;   }
+.blob-3 { animation: blobFloat3 17s ease-in-out infinite 4s;     }
+
+.content-fade-in { animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* ─────────────────────────────────────────────
+   Base resets
+───────────────────────────────────────────── */
+
 body {
   margin: 0;
   display: flex;
@@ -50,46 +122,53 @@ body {
   min-height: 100vh;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-/* hide scrollbar but keep scroll */
+h1 { font-size: 3.2em; line-height: 1.1; }
+
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-button {
-  all: unset;
-  box-sizing: border-box;
-  cursor: pointer;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
+
+button { all: unset; box-sizing: border-box; cursor: pointer; }
+button:focus, button:focus-visible { outline: 4px auto -webkit-focus-ring-color; }
+
 .thumb-wrap:hover .thumb-overlay { opacity: 1 !important; }
-
-.tab-trigger[data-state="active"] {
-  background: linear-gradient(135deg, rgba(124,58,237,0.3), rgba(219,39,119,0.2)) !important;
-  color: rgba(255,255,255,0.9) !important;
-}
-.tab-trigger[data-state="inactive"] {
-  background: transparent !important;
-  color: rgba(255,255,255,0.3) !important;
-}
-
 .history-entry:hover .entry-actions { opacity: 1 !important; }
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
+
+/* ─────────────────────────────────────────────
+   Tabs — Dark · Bitcoin DeFi (orange on void)
+───────────────────────────────────────────── */
+[data-theme="dark"] .tab-trigger[data-state="active"] {
+  background: linear-gradient(135deg, rgba(247,147,26,0.2), rgba(234,88,12,0.1)) !important;
+  color: #F7931A !important;
+  box-shadow: inset 0 1px 0 rgba(247,147,26,0.3), 0 0 14px rgba(247,147,26,0.2) !important;
+}
+[data-theme="dark"] .tab-trigger[data-state="inactive"] {
+  background: transparent !important;
+  color: rgba(148,163,184,0.42) !important;
+}
+
+/* ─────────────────────────────────────────────
+   Tabs — Light · Neo-Brutalism (yellow punch)
+───────────────────────────────────────────── */
+[data-theme="light"] .tab-trigger[data-state="active"] {
+  background: #FFD93D !important;
+  color: #000000 !important;
+  border: 3px solid #000000 !important;
+  box-shadow: 4px 4px 0px 0px #000000 !important;
+  font-weight: 700 !important;
+}
+[data-theme="light"] .tab-trigger[data-state="inactive"] {
+  background: transparent !important;
+  color: rgba(0,0,0,0.45) !important;
+  border: 2px solid transparent !important;
+}
+
+/* ─────────────────────────────────────────────
+   Reduced motion
+───────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.15s !important;
   }
 }

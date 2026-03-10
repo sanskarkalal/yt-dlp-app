@@ -27,31 +27,34 @@ export default function DownloadActions({
         >
           <div
             style={{
-              height: 3,
-              background: C.surfaceHigh,
-              borderRadius: 99,
+              height: C.neoMode ? 10 : 3,
+              background: C.neoMode ? "#000000" : C.surfaceHigh,
+              borderRadius: C.neoMode ? 0 : 99,
               overflow: "hidden",
+              border: C.neoMode ? "2px solid #000000" : "none",
             }}
           >
             <div
               style={{
                 height: "100%",
-                borderRadius: 99,
+                borderRadius: C.neoMode ? 0 : 99,
                 transition: "width 0.15s linear",
                 width: `${visualProgress}%`,
                 background: done ? C.gradSuccess : C.gradAccent,
-                boxShadow: done
-                  ? "0 0 10px rgba(16,185,129,0.5)"
-                  : C.glowViolet,
+                backgroundSize: C.neoMode ? "auto" : "200% 200%",
+                animation: (downloading && !C.neoMode) ? "gradientPan 1.8s ease infinite" : "none",
+                boxShadow: C.neoMode ? "none" : (done
+                  ? "0 0 12px rgba(16,185,129,0.55), 0 0 4px rgba(16,185,129,0.3)"
+                  : "0 0 12px rgba(94,106,210,0.5), 0 0 4px rgba(94,106,210,0.3)"),
               }}
             />
           </div>
           {downloading && (
-            <span style={{ fontSize: 11, color: C.textFaint }}>
+            <span style={{ fontSize: 11, fontWeight: C.neoMode ? 700 : 400, color: C.textMuted }}>
               {visualProgress.toFixed(1)}%
             </span>
           )}
-          {done && <span style={{ fontSize: 11, color: "#34d399" }}>{status}</span>}
+          {done && <span style={{ fontSize: 11, fontWeight: C.neoMode ? 700 : 400, color: C.neoMode ? C.textPrimary : "#34d399" }}>{status}</span>}
         </div>
       )}
 
@@ -96,14 +99,14 @@ export default function DownloadActions({
             alignItems: "center",
             gap: 6,
             fontSize: 12,
-            color: errorStatus.startsWith("Error") ? "#f87171" : C.textFaint,
+            color: errorStatus.startsWith("Error") ? (C.neoMode ? "#FF6B6B" : "#f87171") : C.textFaint,
           }}
         >
           <AlertCircle
             size={13}
             style={{
               flexShrink: 0,
-              color: errorStatus.startsWith("Error") ? "#f87171" : C.textFaint,
+              color: errorStatus.startsWith("Error") ? (C.neoMode ? "#FF6B6B" : "#f87171") : C.textFaint,
             }}
           />
           {errorStatus}

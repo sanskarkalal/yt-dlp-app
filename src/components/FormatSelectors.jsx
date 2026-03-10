@@ -46,11 +46,12 @@ export default function FormatSelectors({
         <Tabs.List
           style={{
             display: "inline-flex",
-            padding: 4,
-            gap: 2,
+            padding: C.neoMode ? 0 : 4,
+            gap: C.neoMode ? 4 : 2,
             background: C.surface,
-            border: `1px solid ${C.border}`,
-            borderRadius: 12,
+            border: `${C.borderW} solid ${C.border}`,
+            borderRadius: C.neoMode ? 0 : 12,
+            boxShadow: C.neoMode ? C.shadowSurface : "none",
             opacity: downloading ? 0.4 : 1,
             pointerEvents: downloading ? "none" : "auto",
           }}
@@ -69,16 +70,23 @@ export default function FormatSelectors({
                   alignItems: "center",
                   gap: 6,
                   padding: "6px 14px",
-                  borderRadius: 8,
+                  borderRadius: C.neoMode ? 0 : 8,
                   fontSize: 12,
-                  fontWeight: 600,
-                  border: isActive
-                    ? `1px solid ${C.borderFocus}`
-                    : "1px solid transparent",
+                  fontWeight: C.neoMode ? 700 : 600,
+                  textTransform: C.neoMode ? "uppercase" : undefined,
+                  letterSpacing: C.neoMode ? "0.05em" : undefined,
+                  border: C.neoMode
+                    ? (isActive ? "3px solid #000000" : "2px solid transparent")
+                    : (isActive ? `1px solid ${C.borderFocus}` : "1px solid transparent"),
                   cursor: "pointer",
-                  transition: "all 0.15s",
-                  background: isActive ? C.surfaceHigh : "transparent",
-                  color: isActive ? C.violetLight : C.textMuted,
+                  transition: C.neoMode ? "all 0.1s ease-out" : "all 0.15s",
+                  background: isActive
+                    ? (C.neoMode ? C.secondaryAccent : C.surfaceHigh)
+                    : "transparent",
+                  color: isActive
+                    ? (C.neoMode ? "#000000" : C.violetLight)
+                    : C.textMuted,
+                  boxShadow: C.neoMode && isActive ? "4px 4px 0px 0px #000000" : "none",
                 }}
               >
                 <I size={13} />

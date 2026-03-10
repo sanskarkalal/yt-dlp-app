@@ -3,6 +3,7 @@ import * as Select from "@radix-ui/react-select";
 import { ChevronDown } from "lucide-react";
 import { useC } from "../../theme";
 
+// Base pill container
 export const pill = (C, extra = {}) => ({
   display: "flex",
   alignItems: "center",
@@ -10,9 +11,15 @@ export const pill = (C, extra = {}) => ({
   height: 40,
   padding: "0 12px",
   background: C.surface,
-  border: `1px solid ${C.border}`,
-  borderRadius: 12,
-  transition: "border-color 0.15s",
+  backdropFilter: C.backdropFilterVal,
+  WebkitBackdropFilter: C.backdropFilterVal,
+  border: `${C.borderW} solid ${C.border}`,
+  borderRadius: C.radius,
+  boxShadow: C.shadowSurface,
+  animation: C.surfaceAnim,
+  transition: C.neoMode
+    ? "box-shadow 0.1s ease-out, border-color 0.1s ease-out"
+    : "border-color 0.2s cubic-bezier(0.16,1,0.3,1), box-shadow 0.2s cubic-bezier(0.16,1,0.3,1)",
   ...extra,
 });
 
@@ -22,8 +29,10 @@ export const inputBase = (C) => ({
   border: "none",
   outline: "none",
   fontSize: 13,
+  fontWeight: C.neoMode ? 700 : 400,
   color: C.textPrimary,
   fontFamily: "inherit",
+  letterSpacing: "-0.01em",
 });
 
 export function FieldLabel({ children }) {
@@ -32,10 +41,12 @@ export function FieldLabel({ children }) {
     <span
       style={{
         fontSize: 10,
-        fontWeight: 700,
+        fontWeight: C.neoMode ? 700 : 600,
         textTransform: "uppercase",
         letterSpacing: "0.12em",
-        color: C.textFaint,
+        color: C.neoMode ? C.textPrimary : C.textFaint,
+        fontFamily: C.fontMono,
+        animation: C.labelAnim,
       }}
     >
       {children}
@@ -45,12 +56,45 @@ export function FieldLabel({ children }) {
 
 export function Badge({ children, color = "violet" }) {
   const C = useC();
+
+  if (C.neoMode) {
+    const neoMap = {
+      violet: ["#FF6B6B", "#000000", "#000000"],
+      pink:   ["#FF6B6B", "#000000", "#000000"],
+      amber:  ["#FFD93D", "#000000", "#000000"],
+      green:  ["#86efac", "#000000", "#000000"],
+      ghost:  ["#FFFFFF", "#000000", "#000000"],
+    };
+    const [bg, border, text] = neoMap[color] || neoMap.ghost;
+    return (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          padding: "2px 8px",
+          borderRadius: 0,
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          textTransform: "uppercase",
+          fontFamily: C.fontMono,
+          background: bg,
+          border: `2px solid ${border}`,
+          color: text,
+          boxShadow: "2px 2px 0px 0px #000000",
+        }}
+      >
+        {children}
+      </span>
+    );
+  }
+
   const map = {
-    violet: ["rgba(139,92,246,0.12)", "rgba(139,92,246,0.25)", "#a78bfa"],
-    pink: ["rgba(236,72,153,0.12)", "rgba(236,72,153,0.25)", "#f472b6"],
-    amber: ["rgba(245,158,11,0.12)", "rgba(245,158,11,0.25)", "#fbbf24"],
-    green: ["rgba(16,185,129,0.12)", "rgba(16,185,129,0.25)", "#34d399"],
-    ghost: [C.surfaceHigh, C.border, C.textMuted],
+    violet: [`rgba(247,147,26,0.12)`, `rgba(247,147,26,0.28)`, C.violetLight],
+    pink:   ["rgba(236,72,153,0.1)",  "rgba(236,72,153,0.22)", "#f472b6"],
+    amber:  ["rgba(245,158,11,0.1)",  "rgba(245,158,11,0.22)", "#fbbf24"],
+    green:  ["rgba(16,185,129,0.1)",  "rgba(16,185,129,0.22)", "#34d399"],
+    ghost:  [C.surfaceHigh, C.border, C.textMuted],
   };
   const [bg, border, text] = map[color] || map.ghost;
   return (
@@ -62,9 +106,12 @@ export function Badge({ children, color = "violet" }) {
         borderRadius: 6,
         fontSize: 10,
         fontWeight: 600,
+        letterSpacing: "0.06em",
+        fontFamily: C.fontMono,
         background: bg,
         border: `1px solid ${border}`,
         color: text,
+        animation: C.badgeAnim,
       }}
     >
       {children}
@@ -75,6 +122,13 @@ export function Badge({ children, color = "violet" }) {
 export function IconBtn({ onClick, disabled, title, children }) {
   const C = useC();
   const [hov, setHov] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  const neo = C.neoMode;
+
+  const transform = neo && !disabled
+    ? (pressed ? "translate(2px, 2px)" : hov ? "translate(-1px, -1px)" : "none")
+    : (hov && !disabled ? "scale(1.1)" : "scale(1)");
+
   return (
     <button
       onClick={onClick}
@@ -86,16 +140,25 @@ export function IconBtn({ onClick, disabled, title, children }) {
         justifyContent: "center",
         width: 32,
         height: 32,
-        borderRadius: 10,
+        borderRadius: C.radius,
         background: hov ? C.surfaceHigh : "transparent",
-        border: "1px solid transparent",
-        color: hov ? C.textPrimary : C.textMuted,
+        border: neo
+          ? `2px solid ${hov || pressed ? "#000000" : "transparent"}`
+          : `1px solid ${hov ? C.borderHover : "transparent"}`,
+        color: neo ? C.textPrimary : (hov ? C.textPrimary : C.textMuted),
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.4 : 1,
-        transition: "all 0.15s",
+        transition: neo ? "all 0.1s ease-out" : "all 0.2s cubic-bezier(0.16,1,0.3,1)",
+        transform,
+        boxShadow: neo
+          ? (pressed ? "none" : hov ? "4px 4px 0px 0px #000000" : "none")
+          : "none",
+        animation: C.iconAnim,
       }}
       onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
+      onMouseLeave={() => { setHov(false); setPressed(false); }}
+      onMouseDown={() => neo && !disabled && setPressed(true)}
+      onMouseUp={() => neo && setPressed(false)}
     >
       {children}
     </button>
@@ -113,41 +176,100 @@ export function Btn({
 }) {
   const C = useC();
   const [hov, setHov] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  const neo = C.neoMode;
+
   const base = {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    height: 40,
+    height: neo ? 44 : 40,
     padding: "0 18px",
-    borderRadius: 12,
+    borderRadius: C.radius,
     fontSize: 13,
-    fontWeight: 600,
+    fontWeight: neo ? 700 : 600,
+    letterSpacing: neo ? "0.06em" : "-0.01em",
+    textTransform: neo ? "uppercase" : undefined,
     width: fullWidth ? "100%" : undefined,
     cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.4 : 1,
-    transition: "all 0.15s",
+    opacity: disabled ? 0.45 : 1,
+    transition: neo ? "all 0.1s ease-out" : "all 0.2s cubic-bezier(0.16,1,0.3,1)",
+    transform: neo
+      ? (disabled ? "none" : pressed ? "translate(4px, 4px)" : hov ? "translate(-2px, -2px)" : "none")
+      : (hov && !disabled ? "translateY(-1px) scale(1.015)" : "translateY(0) scale(1)"),
     border: "none",
   };
-  const vs = {
+
+  const vs = neo ? {
+    // Primary: solid red, hard shadow, push on click
     primary: {
       background: C.gradAccent,
-      color: "#fff",
-      boxShadow:
-        hov && !disabled ? "0 0 28px rgba(124,58,237,0.45)" : C.glowViolet,
+      color: "#FFFFFF",
+      border: "4px solid #000000",
+      boxShadow: disabled || pressed ? "none" : hov ? C.shadowSurfaceHover : C.shadowSurface,
     },
-    success: { background: C.gradSuccess, color: "#fff", cursor: "default" },
+    // Success: solid green, hard shadow
+    success: {
+      background: C.gradSuccess,
+      color: "#FFFFFF",
+      border: "4px solid #000000",
+      boxShadow: C.shadowSurface,
+      cursor: "default",
+      transform: "none",
+    },
+    // Danger: red with hard shadow
     danger: {
-      background: "linear-gradient(135deg,#dc2626,#b91c1c)",
-      color: "#fff",
-      boxShadow: hov ? "0 0 20px rgba(220,38,38,0.4)" : "none",
+      background: "#FF6B6B",
+      color: "#FFFFFF",
+      border: "4px solid #000000",
+      boxShadow: disabled || pressed ? "none" : hov ? "8px 8px 0px 0px #000000" : "6px 6px 0px 0px #000000",
     },
+    // Ghost: white card, yellow on hover
+    ghost: {
+      background: hov ? C.secondaryAccent : C.surface,
+      color: C.textPrimary,
+      border: "4px solid #000000",
+      boxShadow: disabled || pressed ? "none" : hov ? C.shadowSurfaceHover : C.shadowSurface,
+    },
+  } : {
+    // Primary: animated gradient sweep + breathing glow
+    primary: {
+      background: C.gradAccent,
+      backgroundSize: "200% 200%",
+      animation: `gradientPan ${C.gradAccentAnimDuration} ease infinite${C.btnExtraAnim}`,
+      color: "#fff",
+      boxShadow: hov && !disabled ? C.shadowSurfaceHover : C.glowViolet,
+    },
+    // Success: completed state
+    success: {
+      background: C.gradSuccess,
+      color: "#fff",
+      cursor: "default",
+      boxShadow: "0 0 0 1px rgba(16,185,129,0.35), 0 4px 12px rgba(16,185,129,0.2), inset 0 1px 0 rgba(255,255,255,0.12)",
+      animation: "surfaceBreath 4s ease-in-out infinite",
+    },
+    // Danger: red — persistent warning pulse
+    danger: {
+      background: "linear-gradient(135deg, #dc2626, #b91c1c)",
+      color: "#fff",
+      boxShadow: hov
+        ? "0 0 0 1px rgba(220,38,38,0.5), 0 4px 20px rgba(220,38,38,0.4), inset 0 1px 0 rgba(255,255,255,0.1)"
+        : "0 0 0 1px rgba(220,38,38,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+      animation: "handlePulse 3s ease-in-out infinite",
+    },
+    // Ghost: glass surface
     ghost: {
       background: hov ? C.surfaceHigh : C.surface,
-      color: C.textMuted,
-      border: `1px solid ${C.border}`,
+      backdropFilter: "blur(16px)",
+      WebkitBackdropFilter: "blur(16px)",
+      color: hov ? C.textPrimary : C.textMuted,
+      border: `1px solid ${hov ? C.borderHover : C.border}`,
+      boxShadow: hov ? C.shadowSurfaceHover : C.shadowSurface,
+      animation: "surfaceBreath 3s ease-in-out infinite",
     },
   };
+
   return (
     <button
       onClick={onClick}
@@ -155,7 +277,9 @@ export function Btn({
       title={title}
       style={{ ...base, ...vs[variant], ...sx }}
       onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
+      onMouseLeave={() => { setHov(false); setPressed(false); }}
+      onMouseDown={() => neo && !disabled && setPressed(true)}
+      onMouseUp={() => neo && setPressed(false)}
     >
       {children}
     </button>
@@ -188,14 +312,17 @@ export function SelectField({
           width: "100%",
           cursor: "pointer",
           justifyContent: "space-between",
-          borderColor: hov ? C.borderHover : C.border,
+          borderColor: C.border,
+          boxShadow: hov ? C.shadowSurfaceHover : C.shadowSurface,
+          transform: C.neoMode && hov ? "translate(-2px, -2px)" : "none",
+          transition: C.neoMode ? "all 0.1s ease-out" : "all 0.2s cubic-bezier(0.16,1,0.3,1)",
         }}
         onMouseEnter={() => setHov(true)}
         onMouseLeave={() => setHov(false)}
       >
         <Select.Value
           placeholder={
-            <span style={{ color: C.textFaint }}>{placeholder}</span>
+            <span style={{ color: C.textFaint, fontSize: 13 }}>{placeholder}</span>
           }
         />
         <Select.Icon style={{ color: C.textFaint, display: "flex" }}>
@@ -205,15 +332,18 @@ export function SelectField({
       <Select.Portal>
         <Select.Content
           position="popper"
-          sideOffset={4}
+          sideOffset={5}
           style={{
             zIndex: 999,
             minWidth: "var(--radix-select-trigger-width)",
             background: C.selectBg,
-            border: `1px solid ${C.border}`,
-            borderRadius: 12,
-            boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
+            backdropFilter: C.backdropFilterVal,
+            WebkitBackdropFilter: C.backdropFilterVal,
+            border: `${C.borderW} solid ${C.border}`,
+            borderRadius: C.radius,
+            boxShadow: C.shadowSurfaceHover,
             overflow: "hidden",
+            animation: C.surfaceAnim,
           }}
         >
           <Select.Viewport
@@ -240,15 +370,18 @@ function SelectItem({ value, children }) {
       style={{
         display: "flex",
         alignItems: "center",
-        padding: "8px 12px",
-        borderRadius: 8,
+        padding: "7px 12px",
+        borderRadius: C.neoMode ? 0 : 7,
         fontSize: 13,
-        color: hov ? C.textPrimary : C.textMuted,
-        background: hov ? C.surfaceHigh : "transparent",
+        fontWeight: C.neoMode ? 700 : 400,
+        letterSpacing: "-0.01em",
+        color: hov ? (C.neoMode ? "#000000" : C.textPrimary) : C.textMuted,
+        background: hov ? (C.neoMode ? C.secondaryAccent : C.surfaceHigh) : "transparent",
         cursor: "pointer",
         outline: "none",
-        transition: "all 0.1s",
+        transition: C.neoMode ? "all 0.1s ease-out" : "all 0.15s cubic-bezier(0.16,1,0.3,1)",
         userSelect: "none",
+        borderBottom: C.neoMode && hov ? "2px solid #000000" : "none",
       }}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
@@ -298,54 +431,66 @@ export function RangeSlider({
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
   };
+
+  const neo = C.neoMode;
+
   return (
     <div
       ref={trackRef}
       style={{
         position: "relative",
-        height: 20,
+        height: 24,
         display: "flex",
         alignItems: "center",
         cursor: "pointer",
         userSelect: "none",
       }}
     >
+      {/* Track */}
       <div
         style={{
           width: "100%",
-          height: 3,
-          background: C.border,
-          borderRadius: 99,
+          height: neo ? 6 : 3,
+          background: neo ? "#000000" : C.border,
+          borderRadius: neo ? 0 : 99,
+          animation: C.surfaceAnim,
+          border: neo ? "2px solid #000000" : "none",
         }}
       />
+      {/* Active range fill */}
       <div
         style={{
           position: "absolute",
-          height: 3,
-          borderRadius: 99,
+          height: neo ? 6 : 3,
+          borderRadius: neo ? 0 : 99,
           background: C.gradAccent,
+          backgroundSize: neo ? "auto" : "200% 200%",
+          animation: neo ? "none" : `gradientPan ${C.gradAccentAnimDuration} ease infinite`,
           left: `${sPct}%`,
           right: `${100 - ePct}%`,
         }}
       />
+      {/* Drag handles */}
       {[
         { w: "start", p: sPct },
-        { w: "end", p: ePct },
+        { w: "end",   p: ePct },
       ].map(({ w, p }) => (
         <div
           key={w}
           onMouseDown={drag(w)}
           style={{
             position: "absolute",
-            width: 14,
-            height: 14,
-            borderRadius: "50%",
-            background: C.violetLight,
-            border: `2px solid ${C.bg}`,
-            left: `calc(${p}% - 7px)`,
+            width: neo ? 16 : 14,
+            height: neo ? 16 : 14,
+            borderRadius: neo ? 0 : "50%",
+            background: neo ? C.gradAccent : C.violetLight,
+            border: neo ? "2px solid #000000" : `2px solid ${C.bg}`,
+            left: `calc(${p}% - ${neo ? 8 : 7}px)`,
             zIndex: 2,
             cursor: "grab",
-            boxShadow: "0 0 8px rgba(139,92,246,0.6)",
+            boxShadow: neo ? "3px 3px 0px 0px #000000" : C.glowViolet,
+            animation: C.handleAnim,
+            transition: "transform 0.1s ease-out",
           }}
         />
       ))}
