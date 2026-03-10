@@ -929,7 +929,6 @@ export default function App() {
                 style={{ width: 24, height: 24, objectFit: "contain" }}
               />
             </div>
-
             <div
               style={{
                 display: "flex",
