@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Sun,
   Moon,
+  Instagram,
 } from "lucide-react";
 import { cn } from "./lib/utils";
 import {
@@ -39,6 +40,7 @@ import {
 
 const SAVE_PATH_STORAGE_KEY = "seedhe_download_save_path";
 const THEME_STORAGE_KEY = "seedhe_theme_mode";
+const INSTAGRAM_DM_URL = "https://ig.me/m/sanskar.cs";
 
 function normalizeThumbnailUrl(u) {
   if (!u || typeof u !== "string") return null;
@@ -108,15 +110,8 @@ export default function App() {
   const [botDetected, setBotDetected] = useState(false);
   const [thumbnailLoadError, setThumbnailLoadError] = useState(false);
   const [thumbnailCandidateIndex, setThumbnailCandidateIndex] = useState(0);
+  const [showInstaLabel, setShowInstaLabel] = useState(false);
   const [appVersion, setAppVersion] = useState("");
-  const [checkingAppUpdate, setCheckingAppUpdate] = useState(false);
-  const [appUpdateState, setAppUpdateState] = useState({
-    status: "idle",
-    message: "Not checked yet",
-    updateDownloaded: false,
-    progress: 0,
-    version: "",
-  });
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
 
@@ -205,58 +200,11 @@ export default function App() {
     });
     window.electronAPI.onCookiesStatus((ok) => setCookiesOk(ok));
     window.electronAPI.getAppVersion().then(setAppVersion);
-    window.electronAPI
-      .getAppUpdateState()
-      .then((state) => state && setAppUpdateState(state));
-    window.electronAPI.onAppUpdate((state) => {
-      if (state) setAppUpdateState(state);
-      setCheckingAppUpdate(false);
-    });
   }, []);
 
   useEffect(() => {
     localStorage.setItem(THEME_STORAGE_KEY, darkMode ? "dark" : "light");
   }, [darkMode]);
-
-  const checkForAppUpdate = async () => {
-    try {
-      setCheckingAppUpdate(true);
-      const result = await window.electronAPI.checkForAppUpdate();
-      if (!result?.ok) {
-        setCheckingAppUpdate(false);
-        setAppUpdateState((prev) => ({
-          ...prev,
-          status: "error",
-          message: result?.reason || "Update check failed",
-        }));
-      }
-    } catch {
-      setCheckingAppUpdate(false);
-      setAppUpdateState((prev) => ({
-        ...prev,
-        status: "error",
-        message: "Update check failed",
-      }));
-    }
-  };
-
-  const installAppUpdate = async () => {
-    try {
-      await window.electronAPI.installAppUpdate();
-    } catch {
-      setAppUpdateState((prev) => ({
-        ...prev,
-        status: "error",
-        message: "Failed to install update",
-      }));
-    }
-  };
-
-  const isInstallingUpdate = appUpdateState.status === "installing";
-  const isUpdateBusy =
-    checkingAppUpdate ||
-    appUpdateState.status === "downloading" ||
-    isInstallingUpdate;
 
   useEffect(() => {
     setThumbnailLoadError(false);
@@ -904,7 +852,8 @@ export default function App() {
               style={{
                 position: "absolute",
                 inset: 0,
-                backgroundImage: "radial-gradient(#000000 1px, transparent 1px)",
+                backgroundImage:
+                  "radial-gradient(#000000 1px, transparent 1px)",
                 backgroundSize: "24px 24px",
                 opacity: 0.05,
                 pointerEvents: "none",
@@ -967,27 +916,31 @@ export default function App() {
               />
               <span
                 key={darkMode ? "dark" : "light"}
-                style={C.neoMode ? {
-                  fontSize: 11,
-                  fontWeight: 900,
-                  letterSpacing: "0.18em",
-                  textTransform: "uppercase",
-                  color: "#000000",
-                  fontFamily: C.fontDisplay,
-                  whiteSpace: "nowrap",
-                } : {
-                  fontSize: 11,
-                  fontWeight: 800,
-                  letterSpacing: "0.18em",
-                  textTransform: "uppercase",
-                  background: C.gradAccent,
-                  backgroundSize: "200% 200%",
-                  animation: `gradientPan ${C.gradAccentAnimDuration} ease infinite`,
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  fontFamily: C.fontDisplay,
-                  whiteSpace: "nowrap",
-                }}
+                style={
+                  C.neoMode
+                    ? {
+                        fontSize: 11,
+                        fontWeight: 900,
+                        letterSpacing: "0.18em",
+                        textTransform: "uppercase",
+                        color: "#000000",
+                        fontFamily: C.fontDisplay,
+                        whiteSpace: "nowrap",
+                      }
+                    : {
+                        fontSize: 11,
+                        fontWeight: 800,
+                        letterSpacing: "0.18em",
+                        textTransform: "uppercase",
+                        background: C.gradAccent,
+                        backgroundSize: "200% 200%",
+                        animation: `gradientPan ${C.gradAccentAnimDuration} ease infinite`,
+                        WebkitBackgroundClip: "text",
+                        WebkitTextFillColor: "transparent",
+                        fontFamily: C.fontDisplay,
+                        whiteSpace: "nowrap",
+                      }
+                }
               >
                 Seedhe Download
               </span>
@@ -1006,74 +959,6 @@ export default function App() {
                 WebkitAppRegion: "no-drag",
               }}
             >
-              <button
-                onClick={checkForAppUpdate}
-                disabled={isUpdateBusy}
-                title={appUpdateState.message || "Check for updates"}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "5px 10px",
-                  borderRadius: C.radius,
-                  background: C.surfaceHigh,
-                  border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
-                  boxShadow: C.neoMode ? "3px 3px 0px 0px #000000" : "none",
-                  color: C.neoMode ? C.textPrimary : C.textFaint,
-                  fontSize: 11,
-                  fontWeight: C.neoMode ? 700 : 400,
-                  cursor: isUpdateBusy ? "default" : "pointer",
-                  opacity: isUpdateBusy ? 0.75 : 1,
-                  maxWidth: 220,
-                }}
-              >
-                <RefreshCw
-                  size={12}
-                  className={isUpdateBusy ? "animate-spin" : ""}
-                />
-                <span
-                  style={{
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {isInstallingUpdate
-                    ? "Installing update..."
-                    : appUpdateState.status === "downloaded"
-                      ? "Update ready"
-                      : checkingAppUpdate
-                        ? "Checking..."
-                        : appUpdateState.status === "downloading"
-                          ? `Updating ${Math.round(appUpdateState.progress || 0)}%`
-                          : `v${appVersion || "?"}`}
-                </span>
-              </button>
-              {appUpdateState.updateDownloaded && (
-                <button
-                  onClick={installAppUpdate}
-                  disabled={isInstallingUpdate}
-                  title="Install downloaded update now"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "5px 10px",
-                    borderRadius: C.radius,
-                    background: C.neoMode ? "#86efac" : "rgba(16,185,129,0.12)",
-                    border: C.neoMode ? "2px solid #000000" : "1px solid rgba(16,185,129,0.3)",
-                    boxShadow: C.neoMode ? "3px 3px 0px 0px #000000" : "none",
-                    color: C.neoMode ? "#000000" : "#34d399",
-                    fontSize: 11,
-                    fontWeight: C.neoMode ? 700 : 400,
-                    cursor: isInstallingUpdate ? "default" : "pointer",
-                    opacity: isInstallingUpdate ? 0.75 : 1,
-                  }}
-                >
-                  <CheckCircle2 size={12} />
-                  {isInstallingUpdate ? "Installing..." : "Install update"}
-                </button>
-              )}
               <IconBtn
                 onClick={() => setDarkMode((p) => !p)}
                 title={darkMode ? "Light mode" : "Dark mode"}
@@ -1094,7 +979,9 @@ export default function App() {
                     padding: "5px 10px",
                     borderRadius: C.radius,
                     background: C.neoMode ? "#86efac" : "rgba(16,185,129,0.1)",
-                    border: C.neoMode ? "2px solid #000000" : "1px solid rgba(16,185,129,0.2)",
+                    border: C.neoMode
+                      ? "2px solid #000000"
+                      : "1px solid rgba(16,185,129,0.2)",
                     boxShadow: C.neoMode ? "3px 3px 0px 0px #000000" : "none",
                     color: C.neoMode ? "#000000" : "#34d399",
                     fontSize: 11,
@@ -1153,7 +1040,13 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ height: C.neoMode ? 3 : 1, background: C.border, flexShrink: 0 }} />
+          <div
+            style={{
+              height: C.neoMode ? 3 : 1,
+              background: C.border,
+              flexShrink: 0,
+            }}
+          />
 
           <div
             style={{
@@ -1273,7 +1166,9 @@ export default function App() {
                   gap: 12,
                   padding: 14,
                   background: C.neoMode ? "#FFD93D" : "rgba(245,158,11,0.06)",
-                  border: C.neoMode ? "4px solid #000000" : "1px solid rgba(245,158,11,0.18)",
+                  border: C.neoMode
+                    ? "4px solid #000000"
+                    : "1px solid rgba(245,158,11,0.18)",
                   borderRadius: C.radius,
                   boxShadow: C.neoMode ? C.shadowSurface : "none",
                 }}
@@ -1649,6 +1544,91 @@ export default function App() {
               </div>
             )}
           </div>
+        </div>
+        <button
+          onClick={() => window.electronAPI.openExternal(INSTAGRAM_DM_URL)}
+          onMouseEnter={() => setShowInstaLabel(true)}
+          onMouseLeave={() => setShowInstaLabel(false)}
+          onFocus={() => setShowInstaLabel(true)}
+          onBlur={() => setShowInstaLabel(false)}
+          title="Instagram contact"
+          aria-label="Contact me on Instagram"
+          style={{
+            position: "fixed",
+            right: 14,
+            bottom: 14,
+            zIndex: 35,
+            WebkitAppRegion: "no-drag",
+            pointerEvents: "auto",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: showInstaLabel ? 7 : 0,
+            width: showInstaLabel ? 118 : 34,
+            height: 34,
+            padding: showInstaLabel
+              ? C.neoMode
+                ? "6px 10px"
+                : "6px 11px"
+              : "0 9px",
+            borderRadius: C.radius,
+            border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
+            background: C.neoMode ? C.surface : "rgba(12,15,23,0.82)",
+            boxShadow: C.neoMode
+              ? "3px 3px 0px 0px #000000"
+              : "0 6px 20px rgba(0,0,0,0.28)",
+            color: C.textFaint,
+            fontSize: 11,
+            fontWeight: C.neoMode ? 700 : 500,
+            backdropFilter: C.neoMode ? "none" : "blur(6px)",
+            cursor: "pointer",
+            appearance: "none",
+            outline: "none",
+            overflow: "hidden",
+            transition:
+              "width 220ms cubic-bezier(0.4,0,0.2,1), gap 220ms cubic-bezier(0.4,0,0.2,1), padding 220ms cubic-bezier(0.4,0,0.2,1)",
+          }}
+        >
+          <Instagram size={13} style={{ flexShrink: 0 }} />
+          <span
+            style={{
+              maxWidth: showInstaLabel ? 70 : 0,
+              opacity: showInstaLabel ? 1 : 0,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              transform: showInstaLabel ? "translateX(0)" : "translateX(-4px)",
+              transition:
+                "max-width 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease, transform 220ms cubic-bezier(0.4,0,0.2,1)",
+            }}
+          >
+            Contact me
+          </span>
+        </button>
+        <div
+          title="App version"
+          style={{
+            position: "fixed",
+            left: 14,
+            bottom: 14,
+            zIndex: 35,
+            WebkitAppRegion: "no-drag",
+            pointerEvents: "none",
+            display: "inline-flex",
+            alignItems: "center",
+            padding: C.neoMode ? "6px 10px" : "6px 11px",
+            borderRadius: C.radius,
+            border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
+            background: C.neoMode ? C.surface : "rgba(12,15,23,0.82)",
+            boxShadow: C.neoMode
+              ? "3px 3px 0px 0px #000000"
+              : "0 6px 20px rgba(0,0,0,0.28)",
+            color: C.textFaint,
+            fontSize: 11,
+            fontWeight: C.neoMode ? 700 : 500,
+            backdropFilter: C.neoMode ? "none" : "blur(6px)",
+          }}
+        >
+          {`v${appVersion || "?"}`}
         </div>
       </div>
     </ThemeCtx.Provider>

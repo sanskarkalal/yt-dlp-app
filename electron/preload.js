@@ -32,4 +32,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteHistoryEntry: (id) => ipcRenderer.invoke("delete-history-entry", id),
   showInFolder: (filePath) => ipcRenderer.invoke("show-in-folder", filePath),
   deleteFile: (filePath) => ipcRenderer.invoke("delete-file", filePath),
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
 });

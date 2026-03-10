@@ -684,19 +684,27 @@ function initAppAutoUpdater() {
       version: nextVersion,
     });
 
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (isMac) {
-      const result = await dialog.showMessageBox(mainWindow, {
-        type: "info",
-        buttons: ["Install now", "Later"],
-        defaultId: 0,
-        cancelId: 1,
-        title: "Update ready",
-        message: "A new version has been downloaded.",
-        detail:
-          "Install now will replace the app in /Applications and relaunch it.",
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog
+        .showMessageBox(mainWindow, {
+          type: "info",
+          buttons: ["OK"],
+          defaultId: 0,
+          title: "Updating app",
+          message: "Updating app...",
+          detail: "The app will restart automatically.",
+          noLink: true,
+        })
+        .catch(() => {});
+    }
+
+    setTimeout(async () => {
+      pushAppUpdateState({
+        status: "installing",
+        message: "Installing update and restarting...",
       });
-      if (result.response === 0) {
+
+      if (isMac) {
         try {
           await installDownloadedMacUpdate(nextVersion);
         } catch (err) {
@@ -709,22 +717,11 @@ function initAppAutoUpdater() {
           });
           shell.openExternal(releaseUrl);
         }
+        return;
       }
-      return;
-    }
 
-    const result = await dialog.showMessageBox(mainWindow, {
-      type: "info",
-      buttons: ["Restart now", "Later"],
-      defaultId: 0,
-      cancelId: 1,
-      title: "Update ready",
-      message: "A new version has been downloaded.",
-      detail: "Restart now to finish installing the update.",
-    });
-    if (result.response === 0) {
       autoUpdater.quitAndInstall(false, true);
-    }
+    }, 900);
   });
 
   autoUpdater.on("error", (err) => {
@@ -1749,6 +1746,17 @@ ipcMain.handle("clear-history", () => {
   const p = getHistoryPath();
   if (fs.existsSync(p)) fs.unlinkSync(p);
   return true;
+});
+
+ipcMain.handle("open-external", async (_, rawUrl) => {
+  try {
+    const u = new URL(String(rawUrl || ""));
+    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    await shell.openExternal(u.toString());
+    return true;
+  } catch {
+    return false;
+  }
 });
 
 // ---------------------------------------------------------------------------
