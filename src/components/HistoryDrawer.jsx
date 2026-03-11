@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useC } from "../theme";
+import { getHistoryUi } from "../themes/app-ui";
 import { Badge, IconBtn } from "./ui/Primitives";
 
 function timeAgo(ts) {
@@ -42,6 +43,7 @@ function normalizeThumbnailUrl(u) {
 
 export default function HistoryDrawer({ open, onClose }) {
   const C = useC();
+  const H = getHistoryUi(C);
   const [history, setHistory] = useState([]);
   const [clearing, setClearing] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -124,7 +126,7 @@ export default function HistoryDrawer({ open, onClose }) {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background: C.neoMode ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.7)",
+            background: H.confirmOverlayBg,
             backdropFilter: C.backdropFilterVal,
           }}
         >
@@ -138,9 +140,9 @@ export default function HistoryDrawer({ open, onClose }) {
               display: "flex",
               flexDirection: "column",
               gap: 20,
-              boxShadow: C.neoMode ? "12px 12px 0px 0px #000000" : "0 32px 80px rgba(0,0,0,0.7)",
+              boxShadow: H.confirmDialogShadow,
               textAlign: "center",
-              fontFamily: C.fontDisplay,
+              fontFamily: C.fontBody || C.fontDisplay,
             }}
           >
             <div
@@ -155,16 +157,16 @@ export default function HistoryDrawer({ open, onClose }) {
                 style={{
                   width: 44,
                   height: 44,
-                  borderRadius: C.neoMode ? 0 : 12,
-                  background: C.neoMode ? "#FF6B6B" : "rgba(220,38,38,0.12)",
-                  border: C.neoMode ? "3px solid #000000" : "1px solid rgba(220,38,38,0.2)",
-                  boxShadow: C.neoMode ? "4px 4px 0px 0px #000000" : "none",
+                  borderRadius: H.confirmIconRadius,
+                  background: H.confirmIconBg,
+                  border: H.confirmIconBorder,
+                  boxShadow: H.confirmIconShadow,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
-                <Trash2 size={18} style={{ color: C.neoMode ? "#FFFFFF" : "#f87171" }} />
+                <Trash2 size={18} style={{ color: H.confirmIconColor }} />
               </div>
               <p
                 style={{
@@ -199,14 +201,14 @@ export default function HistoryDrawer({ open, onClose }) {
                   height: 38,
                   borderRadius: C.radius,
                   fontSize: 13,
-                  fontWeight: C.neoMode ? 700 : 600,
-                  textTransform: C.neoMode ? "uppercase" : undefined,
-                  letterSpacing: C.neoMode ? "0.05em" : undefined,
+                  fontWeight: H.confirmBtnWeight,
+                  textTransform: H.confirmBtnTransform,
+                  letterSpacing: H.confirmBtnSpacing,
                   background: C.surfaceHigh,
                   border: `${C.borderW} solid ${C.border}`,
-                  color: C.neoMode ? C.textPrimary : C.textMuted,
+                  color: H.confirmCancelColor,
                   cursor: "pointer",
-                  boxShadow: C.neoMode ? "4px 4px 0px 0px #000000" : "none",
+                  boxShadow: H.confirmCancelShadow,
                 }}
               >
                 Cancel
@@ -218,14 +220,14 @@ export default function HistoryDrawer({ open, onClose }) {
                   height: 38,
                   borderRadius: C.radius,
                   fontSize: 13,
-                  fontWeight: C.neoMode ? 700 : 600,
-                  textTransform: C.neoMode ? "uppercase" : undefined,
-                  letterSpacing: C.neoMode ? "0.05em" : undefined,
-                  background: C.neoMode ? "#FF6B6B" : "linear-gradient(135deg,#dc2626,#b91c1c)",
-                  border: C.neoMode ? "4px solid #000000" : "none",
+                  fontWeight: H.confirmBtnWeight,
+                  textTransform: H.confirmBtnTransform,
+                  letterSpacing: H.confirmBtnSpacing,
+                  background: H.confirmDeleteBg,
+                  border: H.confirmDeleteBorder,
                   color: "#fff",
                   cursor: "pointer",
-                  boxShadow: C.neoMode ? "4px 4px 0px 0px #000000" : "0 0 20px rgba(220,38,38,0.35)",
+                  boxShadow: H.confirmDeleteShadow,
                 }}
               >
                 Delete
@@ -241,7 +243,7 @@ export default function HistoryDrawer({ open, onClose }) {
           position: "fixed",
           inset: 0,
           zIndex: 40,
-          background: C.neoMode ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.6)",
+          background: H.overlayBg,
           backdropFilter: C.backdropFilterVal,
           opacity: open ? 1 : 0,
           pointerEvents: open ? "auto" : "none",
@@ -262,8 +264,8 @@ export default function HistoryDrawer({ open, onClose }) {
           borderLeft: `${C.borderW} solid ${C.border}`,
           transform: open ? "translateX(0)" : "translateX(100%)",
           transition: "transform 0.28s cubic-bezier(0.4,0,0.2,1)",
-          boxShadow: open ? (C.neoMode ? "-8px 0 0px 0px #000000" : "-24px 0 64px rgba(0,0,0,0.5)") : "none",
-          fontFamily: C.fontDisplay,
+          boxShadow: open ? H.drawerShadowOpen : "none",
+          fontFamily: C.fontBody || C.fontDisplay,
         }}
       >
         <div
@@ -284,13 +286,13 @@ export default function HistoryDrawer({ open, onClose }) {
               <span
                 style={{
                   fontSize: 10,
-                  fontWeight: C.neoMode ? 700 : 600,
+                  fontWeight: H.countBadgeWeight,
                   padding: "2px 6px",
-                  borderRadius: C.neoMode ? 0 : 6,
-                  background: C.neoMode ? "#000000" : C.surfaceHigh,
-                  color: C.neoMode ? "#FFFFFF" : C.textFaint,
-                  border: C.neoMode ? "2px solid #000000" : "none",
-                  boxShadow: C.neoMode ? "2px 2px 0px 0px #000000" : "none",
+                  borderRadius: H.countBadgeRadius,
+                  background: H.countBadgeBg,
+                  color: H.countBadgeColor,
+                  border: H.countBadgeBorder,
+                  boxShadow: H.countBadgeShadow,
                 }}
               >
                 {history.length}
@@ -306,17 +308,15 @@ export default function HistoryDrawer({ open, onClose }) {
                   alignItems: "center",
                   gap: 4,
                   fontSize: 11,
-                  fontWeight: C.neoMode ? 700 : 500,
+                  fontWeight: H.toolbarWeight,
                   padding: "4px 10px",
-                  borderRadius: C.neoMode ? 0 : 8,
+                  borderRadius: H.toolbarRadius,
                   background: allSel
-                    ? (C.neoMode ? C.secondaryAccent : "rgba(124,58,237,0.15)")
+                    ? H.toolbarSelectedBg
                     : C.surfaceHigh,
-                  border: C.neoMode
-                    ? `2px solid #000000`
-                    : `1px solid ${allSel ? "rgba(124,58,237,0.3)" : C.border}`,
-                  color: allSel ? (C.neoMode ? "#000000" : C.violetLight) : C.textMuted,
-                  boxShadow: C.neoMode ? "2px 2px 0px 0px #000000" : "none",
+                  border: allSel ? H.toolbarSelectedBorder : H.toolbarDefaultBorder,
+                  color: allSel ? H.toolbarSelectedColor : C.textMuted,
+                  boxShadow: H.toolbarShadow,
                   cursor: "pointer",
                 }}
               >
@@ -333,13 +333,13 @@ export default function HistoryDrawer({ open, onClose }) {
                   alignItems: "center",
                   gap: 4,
                   fontSize: 11,
-                  fontWeight: C.neoMode ? 700 : 600,
+                  fontWeight: H.confirmBtnWeight,
                   padding: "4px 10px",
-                  borderRadius: C.neoMode ? 0 : 8,
-                  background: C.neoMode ? "#FF6B6B" : "rgba(220,38,38,0.12)",
-                  border: C.neoMode ? "2px solid #000000" : "1px solid rgba(220,38,38,0.25)",
-                  color: C.neoMode ? "#FFFFFF" : "#f87171",
-                  boxShadow: C.neoMode ? "2px 2px 0px 0px #000000" : "none",
+                  borderRadius: H.toolbarRadius,
+                  background: H.dangerChipBg,
+                  border: H.dangerChipBorder,
+                  color: H.dangerChipColor,
+                  boxShadow: H.dangerChipShadow,
                   cursor: "pointer",
                 }}
               >
@@ -359,13 +359,13 @@ export default function HistoryDrawer({ open, onClose }) {
                   alignItems: "center",
                   gap: 4,
                   fontSize: 11,
-                  fontWeight: C.neoMode ? 700 : 500,
+                  fontWeight: H.toolbarWeight,
                   padding: "4px 10px",
-                  borderRadius: C.neoMode ? 0 : 8,
+                  borderRadius: H.toolbarRadius,
                   background: C.surfaceHigh,
-                  border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
-                  color: C.neoMode ? C.textPrimary : C.textMuted,
-                  boxShadow: C.neoMode ? "2px 2px 0px 0px #000000" : "none",
+                  border: `${H.plainChipBorder} solid ${C.border}`,
+                  color: C.textMuted,
+                  boxShadow: H.toolbarShadow,
                   cursor: "pointer",
                 }}
               >
@@ -422,12 +422,12 @@ export default function HistoryDrawer({ open, onClose }) {
                         alignItems: "center",
                         gap: 8,
                         padding: "8px 10px",
-                        borderRadius: C.neoMode ? 0 : 12,
+                        borderRadius: H.entryRadius,
                         cursor: "pointer",
                         background: isSel ? C.selectionBg : C.surface,
-                        border: `${C.neoMode ? "3px" : "1px"} solid ${isSel ? C.selectionBorder : C.border}`,
-                        boxShadow: C.neoMode && isSel ? "4px 4px 0px 0px #000000" : "none",
-                        transition: C.neoMode ? "all 0.1s ease-out" : "all 0.15s",
+                        border: `${H.entryBorderW} solid ${isSel ? C.selectionBorder : C.border}`,
+                        boxShadow: isSel ? H.entrySelectedShadow : "none",
+                        transition: H.entryTransition,
                         width: "100%",
                         boxSizing: "border-box",
                       }}
@@ -436,12 +436,12 @@ export default function HistoryDrawer({ open, onClose }) {
                         style={{
                           width: 52,
                           height: 36,
-                          borderRadius: C.neoMode ? 0 : 8,
+                          borderRadius: H.entryThumbRadius,
                           overflow: "hidden",
                           background: C.surfaceHigh,
                           flexShrink: 0,
                           position: "relative",
-                          border: C.neoMode ? "2px solid #000000" : "none",
+                          border: H.entryThumbBorder,
                         }}
                       >
                         {normalizeThumbnailUrl(entry.thumbnail) &&
@@ -483,7 +483,7 @@ export default function HistoryDrawer({ open, onClose }) {
                               justifyContent: "center",
                             }}
                           >
-                            <CheckCircle2 size={14} style={{ color: C.neoMode ? "#000000" : "#a78bfa" }} />
+                            <CheckCircle2 size={14} style={{ color: H.entrySelectedCheckColor }} />
                           </div>
                         )}
                       </div>

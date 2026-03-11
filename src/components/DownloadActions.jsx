@@ -14,6 +14,7 @@ export default function DownloadActions({
   errorStatus,
 }) {
   const visualProgress = done ? 100 : smoothProgress;
+  const idleAnimationsEnabled = C.enableIdleAnimations !== false;
 
   return (
     <>
@@ -42,7 +43,10 @@ export default function DownloadActions({
                 width: `${visualProgress}%`,
                 background: done ? C.gradSuccess : C.gradAccent,
                 backgroundSize: C.neoMode ? "auto" : "200% 200%",
-                animation: (downloading && !C.neoMode) ? "gradientPan 1.8s ease infinite" : "none",
+                animation:
+                  downloading && !C.neoMode && idleAnimationsEnabled
+                    ? "gradientPan 1.8s ease infinite"
+                    : "none",
                 boxShadow: C.neoMode ? "none" : (done
                   ? "0 0 12px rgba(16,185,129,0.55), 0 0 4px rgba(16,185,129,0.3)"
                   : "0 0 12px rgba(94,106,210,0.5), 0 0 4px rgba(94,106,210,0.3)"),

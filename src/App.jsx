@@ -4,6 +4,7 @@ import {
   X,
   Clock,
   CheckCircle2,
+  ChevronDown,
   LogIn,
   Image as ImageIcon,
   Music,
@@ -13,8 +14,7 @@ import {
   Lock,
   ClipboardPaste,
   RefreshCw,
-  Sun,
-  Moon,
+  Palette,
   Instagram,
 } from "lucide-react";
 import { cn } from "./lib/utils";
@@ -23,7 +23,14 @@ import {
   getAllowedContainers,
 } from "./lib/format-utils";
 import { formatDuration, isValidTime, timeToSecs } from "./lib/time-utils";
-import { DARK, LIGHT, ThemeCtx } from "./theme";
+import {
+  DEFAULT_THEME_ID,
+  getThemeById,
+  normalizeThemeId,
+  THEMES,
+  ThemeCtx,
+} from "./theme";
+import { getAppUi } from "./themes/app-ui";
 import iconPng from "./assets/icon.png";
 import FormatSelectors from "./components/FormatSelectors";
 import ClipControls from "./components/ClipControls";
@@ -39,7 +46,7 @@ import {
 } from "./components/ui/Primitives";
 
 const SAVE_PATH_STORAGE_KEY = "seedhe_download_save_path";
-const THEME_STORAGE_KEY = "seedhe_theme_mode";
+const THEME_STORAGE_KEY = "seedhe_theme";
 const INSTAGRAM_DM_URL = "https://ig.me/m/sanskar.cs";
 
 function normalizeThumbnailUrl(u) {
@@ -70,13 +77,15 @@ function getThumbnailCandidates(info) {
 }
 
 export default function App() {
-  const [darkMode, setDarkMode] = useState(() => {
-    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
-    if (savedTheme === "light") return false;
-    if (savedTheme === "dark") return true;
-    return true;
+  const [themeId, setThemeId] = useState(() => {
+    const savedTheme =
+      localStorage.getItem(THEME_STORAGE_KEY) ||
+      localStorage.getItem("seedhe_theme_mode");
+    return normalizeThemeId(savedTheme);
   });
-  const C = darkMode ? DARK : LIGHT;
+  const activeTheme = getThemeById(themeId);
+  const C = activeTheme.tokens;
+  const UI = getAppUi(C);
   const [url, setUrl] = useState("");
   const [videoInfo, setVideoInfo] = useState(null);
   const [selectedHeight, setSelectedHeight] = useState(null);
@@ -111,6 +120,7 @@ export default function App() {
   const [thumbnailLoadError, setThumbnailLoadError] = useState(false);
   const [thumbnailCandidateIndex, setThumbnailCandidateIndex] = useState(0);
   const [showInstaLabel, setShowInstaLabel] = useState(false);
+  const [contactDockedLeft, setContactDockedLeft] = useState(false);
   const [appVersion, setAppVersion] = useState("");
   const [appUpdate, setAppUpdate] = useState({
     status: "idle",
@@ -123,6 +133,8 @@ export default function App() {
   const [installingAppUpdate, setInstallingAppUpdate] = useState(false);
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
+  const themeMenuRef = useRef(null);
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
 
   const duration = videoInfo?.duration || 0;
   const sliderStart = timeToSecs(clipStart) ?? 0;
@@ -214,8 +226,39 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(THEME_STORAGE_KEY, darkMode ? "dark" : "light");
-  }, [darkMode]);
+    localStorage.setItem(THEME_STORAGE_KEY, themeId || DEFAULT_THEME_ID);
+  }, [themeId]);
+
+  useEffect(() => {
+    if (!themeMenuOpen) return;
+
+    const handlePointerDown = (event) => {
+      if (!themeMenuRef.current?.contains(event.target)) {
+        setThemeMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setThemeMenuOpen(false);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [themeMenuOpen]);
+
+  useEffect(() => {
+    const updateHideContact = () => {
+      const minHeight = Number(UI.hideContactBelowHeight || 0);
+      setContactDockedLeft(minHeight > 0 && window.innerHeight < minHeight);
+    };
+
+    updateHideContact();
+    window.addEventListener("resize", updateHideContact);
+    return () => window.removeEventListener("resize", updateHideContact);
+  }, [UI.hideContactBelowHeight]);
 
   useEffect(() => {
     setThumbnailLoadError(false);
@@ -713,7 +756,7 @@ export default function App() {
     <ThemeCtx.Provider value={C}>
       <style>{`input::placeholder { color: ${C.textMuted}; opacity: 1; }`}</style>
       <div
-        data-theme={darkMode ? "dark" : "light"}
+        data-theme={activeTheme.dataTheme}
         style={{
           height: "100vh",
           width: "100vw",
@@ -722,7 +765,7 @@ export default function App() {
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          fontFamily: C.fontDisplay,
+          fontFamily: C.fontBody || C.fontDisplay,
         }}
       >
         <HistoryDrawer
@@ -736,8 +779,8 @@ export default function App() {
               position: "fixed",
               inset: 0,
               zIndex: 60,
-              background: C.neoMode ? "rgba(0,0,0,0.38)" : "rgba(2,6,23,0.72)",
-              backdropFilter: C.neoMode ? "none" : "blur(5px)",
+              background: UI.signOutOverlayBg,
+              backdropFilter: UI.signOutOverlayBackdrop,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -748,17 +791,15 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
               style={{
                 width: "min(420px, 100%)",
-                borderRadius: C.neoMode ? 0 : 14,
-                background: C.neoMode ? "#FFF7DB" : C.surface,
-                border: `${C.neoMode ? "4px" : "1px"} solid ${C.border}`,
-                boxShadow: C.neoMode
-                  ? "10px 10px 0px 0px #000000"
-                  : "0 24px 60px rgba(0,0,0,0.45)",
+                borderRadius: UI.signOutDialogRadius,
+                background: UI.signOutDialogBg,
+                border: `${UI.signOutDialogBorderWidth} solid ${C.border}`,
+                boxShadow: UI.signOutDialogShadow,
                 padding: 16,
                 display: "flex",
                 flexDirection: "column",
                 gap: 14,
-                fontFamily: C.fontDisplay,
+                fontFamily: C.fontBody || C.fontDisplay,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -766,20 +807,15 @@ export default function App() {
                   style={{
                     width: 24,
                     height: 24,
-                    borderRadius: C.neoMode ? 0 : 8,
-                    background: C.neoMode ? "#FFD93D" : "rgba(245,158,11,0.15)",
-                    border: `${C.neoMode ? "2px" : "1px"} solid ${
-                      C.neoMode ? "#000000" : "rgba(245,158,11,0.3)"
-                    }`,
+                    borderRadius: UI.signOutIconRadius,
+                    background: UI.signOutIconBg,
+                    border: UI.signOutIconBorder,
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
                   }}
                 >
-                  <Lock
-                    size={13}
-                    style={{ color: C.neoMode ? "#000000" : "#fbbf24" }}
-                  />
+                  <Lock size={13} style={{ color: UI.signOutIconColor }} />
                 </div>
                 <span
                   style={{
@@ -810,11 +846,11 @@ export default function App() {
                   disabled={signingOut}
                   variant="ghost"
                   style={{
-                    height: C.neoMode ? 38 : 34,
+                    height: UI.signOutBtnHeight,
                     padding: "0 12px",
                     fontSize: 12,
-                    textTransform: C.neoMode ? undefined : "none",
-                    letterSpacing: C.neoMode ? undefined : "-0.01em",
+                    textTransform: UI.signOutBtnTextTransform,
+                    letterSpacing: UI.signOutBtnLetterSpacing,
                   }}
                 >
                   Cancel
@@ -824,11 +860,11 @@ export default function App() {
                   disabled={signingOut}
                   variant="danger"
                   style={{
-                    height: C.neoMode ? 38 : 34,
+                    height: UI.signOutBtnHeight,
                     padding: "0 12px",
                     fontSize: 12,
-                    textTransform: C.neoMode ? undefined : "none",
-                    letterSpacing: C.neoMode ? undefined : "-0.01em",
+                    textTransform: UI.signOutBtnTextTransform,
+                    letterSpacing: UI.signOutBtnLetterSpacing,
                   }}
                 >
                   {signingOut ? (
@@ -865,6 +901,7 @@ export default function App() {
               background: C.blobA,
               filter: "blur(120px)",
               willChange: "transform",
+              animation: C.enableIdleAnimations === false ? "none" : undefined,
             }}
           />
           {/* Secondary blob — bottom-right */}
@@ -879,10 +916,11 @@ export default function App() {
               background: C.blobB,
               filter: "blur(100px)",
               willChange: "transform",
+              animation: C.enableIdleAnimations === false ? "none" : undefined,
             }}
           />
           {/* Neo-brutalism halftone dot pattern */}
-          {C.neoMode && (
+          {UI.showHalftoneOverlay && (
             <div
               style={{
                 position: "absolute",
@@ -907,6 +945,7 @@ export default function App() {
               background: C.blobC,
               filter: "blur(80px)",
               willChange: "transform",
+              animation: C.enableIdleAnimations === false ? "none" : undefined,
             }}
           />
         </div>
@@ -950,16 +989,16 @@ export default function App() {
                 style={{ width: 35, height: 35, objectFit: "contain" }}
               />
               <span
-                key={darkMode ? "dark" : "light"}
+                key={themeId}
                 style={
-                  C.neoMode
+                  UI.titleUseSolidColor
                     ? {
                         fontSize: 15,
                         fontWeight: 1000,
                         letterSpacing: "0.18em",
                         textTransform: "uppercase",
-                        color: "#000000",
-                        fontFamily: C.fontDisplay,
+                        color: UI.titleSolidColor,
+                        fontFamily: C.fontHeading || C.fontDisplay,
                         whiteSpace: "nowrap",
                       }
                     : {
@@ -969,10 +1008,13 @@ export default function App() {
                         textTransform: "uppercase",
                         background: C.gradAccent,
                         backgroundSize: "200% 200%",
-                        animation: `gradientPan ${C.gradAccentAnimDuration} ease infinite`,
+                        animation:
+                          C.enableIdleAnimations === false
+                            ? "none"
+                            : `gradientPan ${C.gradAccentAnimDuration} ease infinite`,
                         WebkitBackgroundClip: "text",
                         WebkitTextFillColor: "transparent",
-                        fontFamily: C.fontDisplay,
+                        fontFamily: C.fontHeading || C.fontDisplay,
                         whiteSpace: "nowrap",
                       }
                 }
@@ -994,12 +1036,102 @@ export default function App() {
                 WebkitAppRegion: "no-drag",
               }}
             >
-              <IconBtn
-                onClick={() => setDarkMode((p) => !p)}
-                title={darkMode ? "Light mode" : "Dark mode"}
+              <div
+                ref={themeMenuRef}
+                style={{
+                  position: "relative",
+                  display: "inline-flex",
+                }}
               >
-                {darkMode ? <Sun size={16} /> : <Moon size={16} />}
-              </IconBtn>
+                <button
+                  onClick={() => setThemeMenuOpen((p) => !p)}
+                  title="Theme"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    minHeight: 32,
+                    minWidth: 44,
+                    justifyContent: "center",
+                    padding: "5px 8px",
+                    borderRadius: C.radius,
+                    border: `${UI.themePickerTriggerBorderWidth} solid ${C.border}`,
+                    background: C.selectBg,
+                    boxShadow: UI.themePickerTriggerShadow,
+                    color: C.textPrimary,
+                    fontSize: 11,
+                    fontFamily: C.fontBody || C.fontDisplay,
+                    fontWeight: UI.themePickerTriggerFontWeight,
+                    cursor: "pointer",
+                    lineHeight: 1,
+                  }}
+                >
+                  <Palette size={13} />
+                  <ChevronDown
+                    size={12}
+                    style={{
+                      transition: "transform 0.15s ease",
+                      transform: themeMenuOpen ? "rotate(180deg)" : "rotate(0deg)",
+                    }}
+                  />
+                </button>
+
+                {themeMenuOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 6px)",
+                      right: 0,
+                      zIndex: 40,
+                      minWidth: 48,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                      padding: 6,
+                      borderRadius: UI.themePickerMenuRadius,
+                      border: `${UI.themePickerMenuBorderWidth} solid ${C.border}`,
+                      background: C.surface,
+                      boxShadow: UI.themePickerMenuShadow,
+                    }}
+                  >
+                    {THEMES.map((theme) => {
+                      const selected = theme.id === themeId;
+                      return (
+                        <button
+                          key={theme.id}
+                          onClick={() => {
+                            setThemeId(normalizeThemeId(theme.id));
+                            setThemeMenuOpen(false);
+                          }}
+                          style={{
+                            height: 32,
+                            borderRadius: UI.themePickerOptionRadius,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 8,
+                            minWidth: 150,
+                            padding: "0 10px",
+                            fontSize: 12,
+                            fontFamily: C.fontBody || C.fontDisplay,
+                            fontWeight: UI.themePickerOptionFontWeight,
+                            background: selected
+                              ? UI.themePickerOptionSelectedBg
+                              : "transparent",
+                            color: C.textPrimary,
+                            border: selected
+                              ? `${UI.themePickerOptionBorderWidth} solid ${C.border}`
+                              : `${UI.themePickerOptionBorderWidth} solid transparent`,
+                          }}
+                          title={theme.label}
+                        >
+                          <span>{theme.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               <IconBtn onClick={() => setHistoryOpen(true)} title="History">
                 <Clock size={16} />
               </IconBtn>
@@ -1013,12 +1145,10 @@ export default function App() {
                     gap: 6,
                     padding: "5px 10px",
                     borderRadius: C.radius,
-                    background: C.neoMode ? "#86efac" : "rgba(16,185,129,0.1)",
-                    border: C.neoMode
-                      ? "2px solid #000000"
-                      : "1px solid rgba(16,185,129,0.2)",
-                    boxShadow: C.neoMode ? "3px 3px 0px 0px #000000" : "none",
-                    color: C.neoMode ? "#000000" : "#34d399",
+                    background: UI.authSignedInBg,
+                    border: UI.authSignedInBorder,
+                    boxShadow: UI.authSignedInShadow,
+                    color: UI.authSignedInColor,
                     fontSize: 11,
                     fontWeight: 600,
                     cursor: "pointer",
@@ -1028,8 +1158,8 @@ export default function App() {
                     style={{
                       width: 6,
                       height: 6,
-                      borderRadius: C.neoMode ? 0 : "50%",
-                      background: C.neoMode ? "#000000" : "#34d399",
+                      borderRadius: UI.authSignedInDotRadius,
+                      background: UI.authSignedInDotColor,
                     }}
                   />
                   Signed in
@@ -1052,11 +1182,11 @@ export default function App() {
                     padding: "5px 10px",
                     borderRadius: C.radius,
                     background: C.surfaceHigh,
-                    border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
-                    boxShadow: C.neoMode ? "3px 3px 0px 0px #000000" : "none",
-                    color: C.neoMode ? C.textPrimary : C.textFaint,
+                    border: `${UI.authSignedOutBorderWidth} solid ${C.border}`,
+                    boxShadow: UI.authSignedOutShadow,
+                    color: UI.authSignedOutColor,
                     fontSize: 11,
-                    fontWeight: C.neoMode ? 700 : 400,
+                    fontWeight: UI.authSignedOutFontWeight,
                     cursor: loggingIn ? "not-allowed" : "pointer",
                     opacity: loggingIn ? 0.6 : 1,
                   }}
@@ -1065,7 +1195,7 @@ export default function App() {
                     style={{
                       width: 6,
                       height: 6,
-                      borderRadius: C.neoMode ? 0 : "50%",
+                      borderRadius: UI.authSignedOutDotRadius,
                       background: C.border,
                     }}
                   />
@@ -1077,7 +1207,7 @@ export default function App() {
 
           <div
             style={{
-              height: C.neoMode ? 3 : 1,
+              height: UI.headerDividerHeight,
               background: C.border,
               flexShrink: 0,
             }}
@@ -1172,7 +1302,7 @@ export default function App() {
                   borderRadius: C.radius,
                   background: C.surface,
                   border: `${C.borderW} solid ${C.border}`,
-                  boxShadow: C.neoMode ? C.shadowSurface : "none",
+                  boxShadow: UI.infoCardShadow,
                 }}
               >
                 <Lock
@@ -1200,24 +1330,26 @@ export default function App() {
                   alignItems: "flex-start",
                   gap: 12,
                   padding: 14,
-                  background: C.neoMode ? "#FFD93D" : "rgba(245,158,11,0.06)",
-                  border: C.neoMode
-                    ? "4px solid #000000"
-                    : "1px solid rgba(245,158,11,0.18)",
+                  background: UI.botCardBg,
+                  border: UI.botCardBorder,
                   borderRadius: C.radius,
-                  boxShadow: C.neoMode ? C.shadowSurface : "none",
+                  boxShadow: UI.botCardShadow,
                 }}
               >
                 <Bot
                   size={15}
-                  style={{ color: "#fbbf24", flexShrink: 0, marginTop: 2 }}
+                  style={{
+                    color: UI.botIconColor,
+                    flexShrink: 0,
+                    marginTop: 2,
+                  }}
                 />
                 <div style={{ flex: 1 }}>
                   <p
                     style={{
                       fontSize: 13,
-                      fontWeight: C.neoMode ? 900 : 600,
-                      color: C.neoMode ? "#000000" : "#fde68a",
+                      fontWeight: UI.botTitleWeight,
+                      color: UI.botTitleColor,
                       margin: 0,
                     }}
                   >
@@ -1259,7 +1391,7 @@ export default function App() {
                   background: C.surface,
                   border: `${C.borderW} solid ${C.border}`,
                   borderRadius: C.radius,
-                  boxShadow: C.neoMode ? C.shadowSurface : "none",
+                  boxShadow: UI.infoCardShadow,
                 }}
               >
                 <Lock
@@ -1403,15 +1535,15 @@ export default function App() {
                     variant={thumbDone ? "success" : "primary"}
                     fullWidth
                     style={{
-                      height: C.neoMode ? 38 : 32,
-                      padding: C.neoMode ? "0 10px" : "0 12px",
+                      height: UI.thumbBtnHeight,
+                      padding: UI.thumbBtnPadding,
                       fontSize: 11,
-                      textTransform: C.neoMode ? undefined : "none",
-                      letterSpacing: C.neoMode ? undefined : "-0.01em",
+                      textTransform: UI.thumbBtnTextTransform,
+                      letterSpacing: UI.thumbBtnLetterSpacing,
                       ...(thumbDone
                         ? {
-                            textTransform: C.neoMode ? undefined : "none",
-                            letterSpacing: C.neoMode ? undefined : "-0.01em",
+                            textTransform: UI.thumbBtnTextTransform,
+                            letterSpacing: UI.thumbBtnLetterSpacing,
                           }
                         : null),
                     }}
@@ -1580,65 +1712,73 @@ export default function App() {
             )}
           </div>
         </div>
-        <button
-          onClick={() => window.electronAPI.openExternal(INSTAGRAM_DM_URL)}
-          onMouseEnter={() => setShowInstaLabel(true)}
-          onMouseLeave={() => setShowInstaLabel(false)}
-          onFocus={() => setShowInstaLabel(true)}
-          onBlur={() => setShowInstaLabel(false)}
-          title="Instagram contact"
-          aria-label="Contact me on Instagram"
-          style={{
-            position: "fixed",
-            right: 14,
-            bottom: 14,
-            zIndex: 35,
-            WebkitAppRegion: "no-drag",
-            pointerEvents: "auto",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: showInstaLabel ? 7 : 0,
-            width: showInstaLabel ? 118 : 34,
-            height: 34,
-            padding: showInstaLabel
-              ? C.neoMode
-                ? "6px 10px"
-                : "6px 11px"
-              : "0 9px",
-            borderRadius: C.radius,
-            border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
-            background: C.neoMode ? C.surface : "rgba(12,15,23,0.82)",
-            boxShadow: C.neoMode
-              ? "3px 3px 0px 0px #000000"
-              : "0 6px 20px rgba(0,0,0,0.28)",
-            color: C.textFaint,
-            fontSize: 11,
-            fontWeight: C.neoMode ? 700 : 500,
-            backdropFilter: C.neoMode ? "none" : "blur(6px)",
-            cursor: "pointer",
-            appearance: "none",
-            outline: "none",
-            overflow: "hidden",
-            transition:
-              "width 220ms cubic-bezier(0.4,0,0.2,1), gap 220ms cubic-bezier(0.4,0,0.2,1), padding 220ms cubic-bezier(0.4,0,0.2,1)",
-          }}
-        >
-          <Instagram size={13} style={{ flexShrink: 0 }} />
-          <span
+        {(() => {
+          const contactExpanded = showInstaLabel;
+          return (
+          <button
+            onClick={() => window.electronAPI.openExternal(INSTAGRAM_DM_URL)}
+            onMouseEnter={() => setShowInstaLabel(true)}
+            onMouseLeave={() => setShowInstaLabel(false)}
+            onFocus={() => setShowInstaLabel(true)}
+            onBlur={() => setShowInstaLabel(false)}
+            title="Instagram contact"
+            aria-label="Contact me on Instagram"
             style={{
-              maxWidth: showInstaLabel ? 70 : 0,
-              opacity: showInstaLabel ? 1 : 0,
-              whiteSpace: "nowrap",
+              position: "fixed",
+              right: contactDockedLeft ? "auto" : 14,
+              left: contactDockedLeft ? 14 : "auto",
+              bottom: contactDockedLeft ? 54 : 14,
+              zIndex: contactDockedLeft ? 36 : 35,
+              WebkitAppRegion: "no-drag",
+              pointerEvents: "auto",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: contactExpanded ? 7 : 0,
+              width: contactExpanded ? 118 : 34,
+              height: 34,
+              padding: contactExpanded
+                ? UI.contactExpandedPadding
+                : UI.contactCollapsedPadding,
+              borderRadius: C.radius,
+              border: `${UI.floatingBorderWidth} solid ${C.border}`,
+              background: UI.floatingBg,
+              boxShadow: UI.floatingShadow,
+              color: C.textMuted,
+              fontSize: 11,
+              fontWeight: UI.floatingFontWeight,
+              fontFamily: C.fontBody || C.fontDisplay,
+              backdropFilter: UI.floatingBackdrop,
+              WebkitBackdropFilter: UI.floatingBackdrop,
+              cursor: "pointer",
+              appearance: "none",
+              outline: "none",
               overflow: "hidden",
-              transform: showInstaLabel ? "translateX(0)" : "translateX(-4px)",
+              animation: contactDockedLeft
+                ? "contactSlideInFromLeft 220ms cubic-bezier(0.22,1,0.36,1)"
+                : "none",
               transition:
-                "max-width 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease, transform 220ms cubic-bezier(0.4,0,0.2,1)",
+                "width 220ms cubic-bezier(0.4,0,0.2,1), gap 220ms cubic-bezier(0.4,0,0.2,1), padding 220ms cubic-bezier(0.4,0,0.2,1)",
             }}
           >
-            Contact me
-          </span>
-        </button>
+            <Instagram size={13} style={{ flexShrink: 0 }} />
+            <span
+              style={{
+                maxWidth: contactExpanded ? 70 : 0,
+                opacity: contactExpanded ? 1 : 0,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                transform: contactExpanded ? "translateX(0)" : "translateX(-4px)",
+                fontFamily: C.fontBody || C.fontDisplay,
+                transition:
+                  "max-width 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease, transform 220ms cubic-bezier(0.4,0,0.2,1)",
+              }}
+            >
+              Contact me
+            </span>
+          </button>
+          );
+        })()}
         {showAppUpdateCard && (
           <div
             style={{
@@ -1650,13 +1790,11 @@ export default function App() {
               WebkitAppRegion: "no-drag",
               pointerEvents: "auto",
               borderRadius: C.radius,
-              border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
-              background: C.neoMode ? C.surface : "rgba(12,15,23,0.9)",
-              boxShadow: C.neoMode
-                ? "3px 3px 0px 0px #000000"
-                : "0 10px 28px rgba(0,0,0,0.36)",
-              backdropFilter: C.neoMode ? "none" : "blur(8px)",
-              padding: C.neoMode ? "10px 10px" : "10px 11px",
+              border: `${UI.floatingBorderWidth} solid ${C.border}`,
+              background: UI.floatingBg,
+              boxShadow: UI.floatingShadow,
+              backdropFilter: UI.floatingBackdrop,
+              padding: UI.floatingPadding,
               display: "flex",
               flexDirection: "column",
               gap: 8,
@@ -1674,7 +1812,7 @@ export default function App() {
                 style={{
                   color: C.textPrimary,
                   fontSize: 12,
-                  fontWeight: C.neoMode ? 700 : 600,
+                  fontWeight: UI.updateMessageWeight,
                   lineHeight: 1.3,
                 }}
               >
@@ -1694,8 +1832,8 @@ export default function App() {
               <div
                 style={{
                   height: 8,
-                  borderRadius: C.neoMode ? 0 : 999,
-                  border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
+                  borderRadius: UI.updateProgressRadius,
+                  border: `${UI.floatingBorderWidth} solid ${C.border}`,
                   background: C.surfaceHigh,
                   overflow: "hidden",
                 }}
@@ -1716,7 +1854,7 @@ export default function App() {
                   onClick={installAppUpdate}
                   disabled={!canInstallAppUpdate}
                   style={{
-                    height: C.neoMode ? 34 : 32,
+                    height: UI.updateActionBtnHeight,
                     padding: "0 12px",
                     fontSize: 11,
                   }}
@@ -1738,17 +1876,16 @@ export default function App() {
             pointerEvents: "none",
             display: "inline-flex",
             alignItems: "center",
-            padding: C.neoMode ? "6px 10px" : "6px 11px",
+            padding: UI.versionBadgePadding,
             borderRadius: C.radius,
-            border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
-            background: C.neoMode ? C.surface : "rgba(12,15,23,0.82)",
-            boxShadow: C.neoMode
-              ? "3px 3px 0px 0px #000000"
-              : "0 6px 20px rgba(0,0,0,0.28)",
+            border: `${UI.floatingBorderWidth} solid ${C.border}`,
+            background: UI.floatingBg,
+            boxShadow: UI.floatingShadow,
             color: C.textFaint,
             fontSize: 11,
-            fontWeight: C.neoMode ? 700 : 500,
-            backdropFilter: C.neoMode ? "none" : "blur(6px)",
+            fontWeight: UI.floatingFontWeight,
+            backdropFilter: UI.floatingBackdrop,
+            WebkitBackdropFilter: UI.floatingBackdrop,
           }}
         >
           {`v${appVersion || "?"}`}

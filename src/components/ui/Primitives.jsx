@@ -3,6 +3,11 @@ import * as Select from "@radix-ui/react-select";
 import { ChevronDown } from "lucide-react";
 import { useC } from "../../theme";
 
+const scaleFont = (C, size) => {
+  const scale = Number(C?.textScale || 1);
+  return Math.round(size * scale * 100) / 100;
+};
+
 // Base pill container
 export const pill = (C, extra = {}) => ({
   display: "flex",
@@ -28,10 +33,10 @@ export const inputBase = (C) => ({
   background: "transparent",
   border: "none",
   outline: "none",
-  fontSize: 13,
+  fontSize: scaleFont(C, 13),
   fontWeight: C.neoMode ? 700 : 400,
   color: C.textPrimary,
-  fontFamily: "inherit",
+  fontFamily: C.fontBody || C.fontMono || "inherit",
   letterSpacing: "-0.01em",
 });
 
@@ -40,12 +45,12 @@ export function FieldLabel({ children }) {
   return (
     <span
       style={{
-        fontSize: 10,
+        fontSize: scaleFont(C, 10),
         fontWeight: C.neoMode ? 700 : 600,
         textTransform: "uppercase",
         letterSpacing: "0.12em",
         color: C.neoMode ? C.textPrimary : C.textFaint,
-        fontFamily: C.fontMono,
+        fontFamily: C.fontBody || C.fontMono,
         animation: C.labelAnim,
       }}
     >
@@ -73,11 +78,11 @@ export function Badge({ children, color = "violet" }) {
           alignItems: "center",
           padding: "2px 8px",
           borderRadius: 0,
-          fontSize: 10,
+          fontSize: scaleFont(C, 10),
           fontWeight: 700,
           letterSpacing: "0.1em",
           textTransform: "uppercase",
-          fontFamily: C.fontMono,
+          fontFamily: C.fontBody || C.fontMono,
           background: bg,
           border: `2px solid ${border}`,
           color: text,
@@ -104,10 +109,10 @@ export function Badge({ children, color = "violet" }) {
         alignItems: "center",
         padding: "2px 8px",
         borderRadius: 6,
-        fontSize: 10,
+        fontSize: scaleFont(C, 10),
         fontWeight: 600,
         letterSpacing: "0.06em",
-        fontFamily: C.fontMono,
+        fontFamily: C.fontBody || C.fontMono,
         background: bg,
         border: `1px solid ${border}`,
         color: text,
@@ -175,6 +180,7 @@ export function Btn({
   title,
 }) {
   const C = useC();
+  const idleAnimationsEnabled = C.enableIdleAnimations !== false;
   const [hov, setHov] = useState(false);
   const [pressed, setPressed] = useState(false);
   const neo = C.neoMode;
@@ -187,8 +193,9 @@ export function Btn({
     height: neo ? 44 : 40,
     padding: "0 18px",
     borderRadius: C.radius,
-    fontSize: 13,
+    fontSize: scaleFont(C, 13),
     fontWeight: neo ? 700 : 600,
+    fontFamily: C.fontBody || C.fontMono || C.fontDisplay,
     letterSpacing: neo ? "0.06em" : "-0.01em",
     textTransform: neo ? "uppercase" : undefined,
     width: fullWidth ? "100%" : undefined,
@@ -237,7 +244,9 @@ export function Btn({
     primary: {
       background: C.gradAccent,
       backgroundSize: "200% 200%",
-      animation: `gradientPan ${C.gradAccentAnimDuration} ease infinite${C.btnExtraAnim}`,
+      animation: idleAnimationsEnabled
+        ? `gradientPan ${C.gradAccentAnimDuration} ease infinite${C.btnExtraAnim}`
+        : "none",
       color: "#fff",
       boxShadow: hov && !disabled ? C.shadowSurfaceHover : C.glowViolet,
     },
@@ -247,7 +256,9 @@ export function Btn({
       color: "#fff",
       cursor: "default",
       boxShadow: "0 0 0 1px rgba(16,185,129,0.35), 0 4px 12px rgba(16,185,129,0.2), inset 0 1px 0 rgba(255,255,255,0.12)",
-      animation: "surfaceBreath 4s ease-in-out infinite",
+      animation: idleAnimationsEnabled
+        ? "surfaceBreath 4s ease-in-out infinite"
+        : "none",
     },
     // Danger: red — persistent warning pulse
     danger: {
@@ -256,7 +267,9 @@ export function Btn({
       boxShadow: hov
         ? "0 0 0 1px rgba(220,38,38,0.5), 0 4px 20px rgba(220,38,38,0.4), inset 0 1px 0 rgba(255,255,255,0.1)"
         : "0 0 0 1px rgba(220,38,38,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
-      animation: "handlePulse 3s ease-in-out infinite",
+      animation: idleAnimationsEnabled
+        ? "handlePulse 3s ease-in-out infinite"
+        : "none",
     },
     // Ghost: glass surface
     ghost: {
@@ -266,7 +279,7 @@ export function Btn({
       color: hov ? C.textPrimary : C.textMuted,
       border: `1px solid ${hov ? C.borderHover : C.border}`,
       boxShadow: hov ? C.shadowSurfaceHover : C.shadowSurface,
-      animation: "surfaceBreath 3s ease-in-out infinite",
+      animation: idleAnimationsEnabled ? "surfaceBreath 3s ease-in-out infinite" : "none",
     },
   };
 
@@ -322,7 +335,9 @@ export function SelectField({
       >
         <Select.Value
           placeholder={
-            <span style={{ color: C.textFaint, fontSize: 13 }}>{placeholder}</span>
+            <span style={{ color: C.textFaint, fontSize: scaleFont(C, 13), fontFamily: C.fontBody || C.fontMono }}>
+              {placeholder}
+            </span>
           }
         />
         <Select.Icon style={{ color: C.textFaint, display: "flex" }}>
@@ -372,9 +387,10 @@ function SelectItem({ value, children }) {
         alignItems: "center",
         padding: "7px 12px",
         borderRadius: C.neoMode ? 0 : 7,
-        fontSize: 13,
+        fontSize: scaleFont(C, 13),
         fontWeight: C.neoMode ? 700 : 400,
         letterSpacing: "-0.01em",
+        fontFamily: C.fontBody || C.fontMono || C.fontDisplay,
         color: hov ? (C.neoMode ? "#000000" : C.textPrimary) : C.textMuted,
         background: hov ? (C.neoMode ? C.secondaryAccent : C.surfaceHigh) : "transparent",
         cursor: "pointer",
@@ -400,6 +416,7 @@ export function RangeSlider({
   disabled,
 }) {
   const C = useC();
+  const idleAnimationsEnabled = C.enableIdleAnimations !== false;
   const trackRef = useRef(null);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const sPct = duration > 0 ? (startSecs / duration) * 100 : 0;
@@ -465,7 +482,10 @@ export function RangeSlider({
           borderRadius: neo ? 0 : 99,
           background: C.gradAccent,
           backgroundSize: neo ? "auto" : "200% 200%",
-          animation: neo ? "none" : `gradientPan ${C.gradAccentAnimDuration} ease infinite`,
+          animation:
+            neo || !idleAnimationsEnabled
+              ? "none"
+              : `gradientPan ${C.gradAccentAnimDuration} ease infinite`,
           left: `${sPct}%`,
           right: `${100 - ePct}%`,
         }}
@@ -489,7 +509,7 @@ export function RangeSlider({
             zIndex: 2,
             cursor: "grab",
             boxShadow: neo ? "3px 3px 0px 0px #000000" : C.glowViolet,
-            animation: C.handleAnim,
+            animation: idleAnimationsEnabled ? C.handleAnim : "none",
             transition: "transform 0.1s ease-out",
           }}
         />
