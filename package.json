@@ -20,6 +20,7 @@
   "build": {
     "appId": "com.ytdlp.app",
     "productName": "seedhe download",
+    "artifactName": "seedhe-download-${version}-${arch}.${ext}",
     "afterPack": "scripts/after-pack.cjs",
     "afterSign": "scripts/notarize.cjs",
     "directories": {
