@@ -870,17 +870,76 @@ function hasLikelyYouTubeAuthCookies(cookies) {
   return cookies.some((c) => authCookieNames.has(c.name));
 }
 
-function cookiesExist() {
-  return (
-    hasValidCookies(getCookiesPath()) || hasValidCookies(LEGACY_COOKIES_PATH)
-  );
+function isYouTubeUrl(url) {
+  const u = String(url || "").toLowerCase();
+  return u.includes("youtube.com") || u.includes("youtu.be");
 }
 
-function cookieArgs() {
+function cookiesExist() {
+  return hasValidCookies(getCookiesPath()) || hasValidCookies(LEGACY_COOKIES_PATH);
+}
+
+function cookieArgs(url) {
+  // Avoid forcing --cookies-from-browser on YouTube since Windows profile DB
+  // access/decryption can fail depending on locked profile/DPAPI state.
   if (hasValidCookies(getCookiesPath())) return ["--cookies", getCookiesPath()];
   if (hasValidCookies(LEGACY_COOKIES_PATH))
     return ["--cookies", LEGACY_COOKIES_PATH];
   return [];
+}
+
+function commonYtDlpArgs(url) {
+  return [
+    "--ignore-config",
+    ...resolveJsRuntimeArgs(),
+    ...cookieArgs(url),
+    ...siteArgs(url),
+  ];
+}
+
+function commonYtDlpArgsWithoutCookies(url) {
+  return ["--ignore-config", ...resolveJsRuntimeArgs(), ...siteArgs(url)];
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isReloadChallengeError(stderr = "") {
+  return (
+    stderr.includes("The page needs to be reloaded") ||
+    stderr.includes("Sign in to confirm you") ||
+    stderr.includes("confirm you're not a bot")
+  );
+}
+
+function buildVideoInfoAttemptArgSets(url) {
+  const base = commonYtDlpArgs(url);
+  const attempts = [base];
+  if (isYouTubeUrl(url)) {
+    attempts.push(commonYtDlpArgsWithoutCookies(url));
+  }
+  return attempts;
+}
+
+function runYtDlpVideoInfo(url, argsBase) {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    let errorOutput = "";
+    const args = ["--dump-json", "--no-playlist", ...argsBase, url];
+    const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
+
+    proc.stdout.on("data", (d) => (output += d.toString()));
+    proc.stderr.on("data", (d) => {
+      const s = d.toString();
+      errorOutput += s;
+      console.error(s);
+    });
+    proc.on("error", (err) =>
+      reject(new Error(`Failed to start yt-dlp: ${err.message}`)),
+    );
+    proc.on("close", (code) => resolve({ code, output, errorOutput }));
+  });
 }
 
 function normalizePathForShell(filePath) {
@@ -897,6 +956,17 @@ function normalizePathForShell(filePath) {
 
 function siteArgs(url) {
   const u = String(url || "").toLowerCase();
+
+  if (isYouTubeUrl(u)) {
+    return [
+      "--extractor-retries",
+      "5",
+      "--retries",
+      "5",
+      "--extractor-args",
+      "youtube:player_client=tv,web_safari,android",
+    ];
+  }
 
   // Some sites (notably PornHub) are strict about request headers for m3u8/API fetches.
   if (u.includes("pornhub.com")) {
@@ -1193,174 +1263,156 @@ ipcMain.handle("install-app-update", () => {
 // ---------------------------------------------------------------------------
 
 ipcMain.handle("get-video-info", async (_, url) => {
-  return new Promise((resolve, reject) => {
-    let output = "";
-    let errorOutput = "";
-    const args = [
-      "--dump-json",
-      "--no-playlist",
-      ...resolveJsRuntimeArgs(),
-      ...cookieArgs(),
-      ...siteArgs(url),
-      url,
-    ];
-    const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
+  const attempts = buildVideoInfoAttemptArgSets(url);
+  let lastErrorOutput = "";
 
-    proc.stdout.on("data", (d) => (output += d.toString()));
-    proc.stderr.on("data", (d) => {
-      errorOutput += d.toString();
-      console.error(d.toString());
-    });
-    proc.on("error", (err) =>
-      reject(new Error(`Failed to start yt-dlp: ${err.message}`)),
+  for (let i = 0; i < attempts.length; i++) {
+    const { code, output, errorOutput } = await runYtDlpVideoInfo(
+      url,
+      attempts[i],
     );
-    proc.on("close", (code) => {
-      if (code !== 0) {
-        const isAgeRestricted =
-          errorOutput.includes("Sign in to confirm your age") ||
-          errorOutput.includes("age-restricted") ||
-          errorOutput.includes("inappropriate for some users");
-        if (isAgeRestricted) return resolve({ ageRestricted: true });
-        const isBotDetected =
-          errorOutput.includes("Sign in to confirm you") ||
-          errorOutput.includes("confirm you're not a bot") ||
-          errorOutput.includes("The page needs to be reloaded");
-        if (isBotDetected) return resolve({ botDetected: true });
-        return reject(new Error(`yt-dlp failed: ${errorOutput.slice(0, 300)}`));
-      }
-        try {
-          const data = JSON.parse(output);
-          const normalizeThumbUrl = (u) => {
-            if (!u || typeof u !== "string") return null;
-            const s = u.replace(/&amp;/g, "&").trim();
-            if (!s) return null;
-            if (s.startsWith("//")) return `https:${s}`;
-            if (s.startsWith("http://")) return s.replace(/^http:\/\//i, "https://");
-            return s;
-          };
-        const thumbs = Array.isArray(data.thumbnails) ? data.thumbnails : [];
-        const bestThumb =
-          thumbs
-            .filter((t) => t?.url)
-            .sort(
-              (a, b) =>
-                (b.width || 0) * (b.height || 0) -
-                (a.width || 0) * (a.height || 0),
-            )[0]?.url || null;
-        const thumbnail = normalizeThumbUrl(data.thumbnail) || normalizeThumbUrl(bestThumb);
-        const rawFormats = [];
-        const allVideoFormats = data.formats
-          .filter((f) => f.vcodec !== "none" && f.vcodec !== null && f.height)
+    if (code !== 0) {
+      const isAgeRestricted =
+        errorOutput.includes("Sign in to confirm your age") ||
+        errorOutput.includes("age-restricted") ||
+        errorOutput.includes("inappropriate for some users");
+      if (isAgeRestricted) return { ageRestricted: true };
+      lastErrorOutput = errorOutput;
+      const shouldRetry = isReloadChallengeError(errorOutput);
+      if (!shouldRetry || i === attempts.length - 1) break;
+      await sleep(350 * (i + 1));
+      continue;
+    }
+
+    try {
+      const data = JSON.parse(output);
+      const normalizeThumbUrl = (u) => {
+        if (!u || typeof u !== "string") return null;
+        const s = u.replace(/&amp;/g, "&").trim();
+        if (!s) return null;
+        if (s.startsWith("//")) return `https:${s}`;
+        if (s.startsWith("http://")) return s.replace(/^http:\/\//i, "https://");
+        return s;
+      };
+      const thumbs = Array.isArray(data.thumbnails) ? data.thumbnails : [];
+      const bestThumb =
+        thumbs
+          .filter((t) => t?.url)
           .sort(
             (a, b) =>
-              b.height - a.height ||
-              (b.vbr || b.tbr || 0) - (a.vbr || a.tbr || 0),
-          );
-
-        for (const f of allVideoFormats) {
-          const codecFull = f.vcodec || "";
-          const codecShort = codecFull.startsWith("avc")
-            ? "H264"
-            : codecFull.startsWith("hvc") || codecFull.startsWith("hev")
-              ? "H265"
-              : codecFull.startsWith("vp9")
-                ? "VP9"
-                : codecFull.startsWith("av01")
-                  ? "AV1"
-                  : codecFull.toUpperCase().slice(0, 6);
-          const bitrate = f.vbr
-            ? Math.round(f.vbr)
-            : f.tbr
-              ? Math.round(f.tbr)
-              : null;
-          const key = `${f.height}-${codecShort}-${bitrate}-${f.format_id}`;
-          rawFormats.push({
-            format_id: f.format_id,
-            height: f.height,
-            width: f.width,
-            codec: codecShort,
-            bitrate,
-            fps: f.fps ? Math.round(f.fps) : null,
-            ext: f.ext,
-            hasMuxedAudio: f.acodec && f.acodec !== "none",
-            key,
-          });
-        }
-
-        const formats = [];
-        const seen = new Set();
-        for (const f of rawFormats) {
-          const k = `${f.height}-${f.codec}-${f.bitrate}`;
-          if (!seen.has(k)) {
-            seen.add(k);
-            formats.push(f);
-          }
-        }
-
-        const audioTracks = [];
-        const seenAudio = new Set();
-        const allAudioFormats = data.formats.filter(
-          (f) => f.acodec !== "none" && f.acodec != null && f.vcodec === "none",
+              (b.width || 0) * (b.height || 0) -
+              (a.width || 0) * (a.height || 0),
+          )[0]?.url || null;
+      const thumbnail =
+        normalizeThumbUrl(data.thumbnail) || normalizeThumbUrl(bestThumb);
+      const rawFormats = [];
+      const allVideoFormats = data.formats
+        .filter((f) => f.vcodec !== "none" && f.vcodec !== null && f.height)
+        .sort(
+          (a, b) =>
+            b.height - a.height || (b.vbr || b.tbr || 0) - (a.vbr || a.tbr || 0),
         );
 
-        for (const f of allAudioFormats) {
-          const lang = f.language || null;
-          const note = f.format_note || "";
-          const abr = f.abr ? Math.round(f.abr) : null;
-          const key = `${lang || "und"}-${note}-${f.acodec || "unknown"}-${abr || "na"}`;
-          if (!seenAudio.has(key)) {
-            seenAudio.add(key);
-            let label = "";
-            if (lang) {
-              try {
-                label = new Intl.DisplayNames(["en"], { type: "language" }).of(
-                  lang,
-                );
-              } catch {
-                label = lang.toUpperCase();
-              }
-              if (note && note !== "Default") label += ` (${note})`;
-            } else {
-              label = note || (f.acodec || "").toUpperCase();
-            }
-            if (abr) label += ` · ${abr}kbps`;
-            audioTracks.push({
-              format_id: f.format_id,
-              label,
-              language: lang,
-              abr,
-              note,
-              acodec: f.acodec || null,
-              ext: f.ext || null,
-            });
-          }
-        }
-
-        const nativeExts = [
-          ...new Set(rawFormats.map((f) => f.ext).filter(Boolean)),
-        ];
-        const availableContainers = [
-          ...new Set([...nativeExts, "mp4", "mkv"]),
-        ].sort();
-
-        resolve({
-          title: data.title,
-          thumbnail,
-          thumbnails: thumbs,
-          duration: data.duration,
-          uploader: data.uploader,
-          formats,
-          rawFormats,
-          audioTracks,
-          availableContainers,
+      for (const f of allVideoFormats) {
+        const codecFull = f.vcodec || "";
+        const codecShort = codecFull.startsWith("avc")
+          ? "H264"
+          : codecFull.startsWith("hvc") || codecFull.startsWith("hev")
+            ? "H265"
+            : codecFull.startsWith("vp9")
+              ? "VP9"
+              : codecFull.startsWith("av01")
+                ? "AV1"
+                : codecFull.toUpperCase().slice(0, 6);
+        const bitrate = f.vbr
+          ? Math.round(f.vbr)
+          : f.tbr
+            ? Math.round(f.tbr)
+            : null;
+        const key = `${f.height}-${codecShort}-${bitrate}-${f.format_id}`;
+        rawFormats.push({
+          format_id: f.format_id,
+          height: f.height,
+          width: f.width,
+          codec: codecShort,
+          bitrate,
+          fps: f.fps ? Math.round(f.fps) : null,
+          ext: f.ext,
+          hasMuxedAudio: f.acodec && f.acodec !== "none",
+          key,
         });
-      } catch (e) {
-        reject(new Error("Failed to parse video info"));
       }
-    });
-  });
-});
 
+      const formats = [];
+      const seen = new Set();
+      for (const f of rawFormats) {
+        const k = `${f.height}-${f.codec}-${f.bitrate}`;
+        if (!seen.has(k)) {
+          seen.add(k);
+          formats.push(f);
+        }
+      }
+
+      const audioTracks = [];
+      const seenAudio = new Set();
+      const allAudioFormats = data.formats.filter(
+        (f) => f.acodec !== "none" && f.acodec != null && f.vcodec === "none",
+      );
+
+      for (const f of allAudioFormats) {
+        const lang = f.language || null;
+        const note = f.format_note || "";
+        const abr = f.abr ? Math.round(f.abr) : null;
+        const key = `${lang || "und"}-${note}-${f.acodec || "unknown"}-${abr || "na"}`;
+        if (!seenAudio.has(key)) {
+          seenAudio.add(key);
+          let label = "";
+          if (lang) {
+            try {
+              label = new Intl.DisplayNames(["en"], { type: "language" }).of(
+                lang,
+              );
+            } catch {
+              label = lang.toUpperCase();
+            }
+            if (note && note !== "Default") label += ` (${note})`;
+          } else {
+            label = note || (f.acodec || "").toUpperCase();
+          }
+          if (abr) label += ` · ${abr}kbps`;
+          audioTracks.push({
+            format_id: f.format_id,
+            label,
+            language: lang,
+            abr,
+            note,
+            acodec: f.acodec || null,
+            ext: f.ext || null,
+          });
+        }
+      }
+
+      const nativeExts = [...new Set(rawFormats.map((f) => f.ext).filter(Boolean))];
+      const availableContainers = [...new Set([...nativeExts, "mp4", "mkv"])].sort();
+
+      return {
+        title: data.title,
+        thumbnail,
+        thumbnails: thumbs,
+        duration: data.duration,
+        uploader: data.uploader,
+        formats,
+        rawFormats,
+        audioTracks,
+        availableContainers,
+      };
+    } catch {
+      throw new Error("Failed to parse video info");
+    }
+  }
+
+  throw new Error(`yt-dlp failed: ${(lastErrorOutput || "").slice(0, 300)}`);
+});
 // ---------------------------------------------------------------------------
 // IPC: Folder & paths
 // ---------------------------------------------------------------------------
@@ -1451,9 +1503,7 @@ ipcMain.handle(
           getFfmpegBin(),
           "--postprocessor-args",
           "ffmpeg:-y",
-          ...resolveJsRuntimeArgs(),
-          ...cookieArgs(),
-          ...siteArgs(url),
+          ...commonYtDlpArgs(url),
           ...(clipStart && clipEnd
             ? ["--download-sections", `*${clipStart}-${clipEnd}`]
             : []),
@@ -1469,15 +1519,11 @@ ipcMain.handle(
           formatId,
           "--merge-output-format",
           container,
-          "--remux-video",
-          container,
           "--ffmpeg-location",
           getFfmpegBin(),
           "--postprocessor-args",
           "ffmpeg:-y",
-          ...resolveJsRuntimeArgs(),
-          ...cookieArgs(),
-          ...siteArgs(url),
+          ...commonYtDlpArgs(url),
           ...(clipStart && clipEnd
             ? ["--download-sections", `*${clipStart}-${clipEnd}`]
             : []),
@@ -1686,10 +1732,6 @@ ipcMain.handle(
           resolve({ cancelled: true });
         } else {
           // Error path
-          const isChallenge =
-            stderrOutput.includes("confirm you're not a bot") ||
-            stderrOutput.includes("Sign in to confirm you") ||
-            stderrOutput.includes("The page needs to be reloaded");
           const isAgeRestricted =
             stderrOutput.includes("Sign in to confirm your age") ||
             stderrOutput.includes("age-restricted") ||
@@ -1705,13 +1747,6 @@ ipcMain.handle(
             return reject(
               new Error(
                 "Download blocked by YouTube age restriction. Sign in and try again.",
-              ),
-            );
-          }
-          if (isChallenge) {
-            return reject(
-              new Error(
-                "YouTube challenge detected (reload/bot check). Re-authenticate or retry later.",
               ),
             );
           }

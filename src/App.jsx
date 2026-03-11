@@ -138,6 +138,7 @@ export default function App() {
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
   const themeMenuRef = useRef(null);
+  const infoFetchInFlightRef = useRef(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
 
   const duration = videoInfo?.duration || 0;
@@ -282,7 +283,8 @@ export default function App() {
   }, [audioOnly, allowedContainers, selectedContainer]);
 
   const fetchInfo = async (u) => {
-    if (!u) return;
+    if (!u || infoFetchInFlightRef.current) return;
+    infoFetchInFlightRef.current = true;
     setLoading(true);
     setVideoInfo(null);
     setStatus("");
@@ -361,6 +363,7 @@ export default function App() {
         setErrorStatus("Error: " + err.message);
       }
     } finally {
+      infoFetchInFlightRef.current = false;
       setLoading(false);
     }
   };
