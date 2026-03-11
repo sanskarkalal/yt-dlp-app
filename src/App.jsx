@@ -912,15 +912,15 @@ export default function App() {
               <img
                 src={iconPng}
                 alt=""
-                style={{ width: 24, height: 24, objectFit: "contain" }}
+                style={{ width: 35, height: 35, objectFit: "contain" }}
               />
               <span
                 key={darkMode ? "dark" : "light"}
                 style={
                   C.neoMode
                     ? {
-                        fontSize: 11,
-                        fontWeight: 900,
+                        fontSize: 15,
+                        fontWeight: 1000,
                         letterSpacing: "0.18em",
                         textTransform: "uppercase",
                         color: "#000000",
@@ -928,8 +928,8 @@ export default function App() {
                         whiteSpace: "nowrap",
                       }
                     : {
-                        fontSize: 11,
-                        fontWeight: 800,
+                        fontSize: 15,
+                        fontWeight: 1000,
                         letterSpacing: "0.18em",
                         textTransform: "uppercase",
                         background: C.gradAccent,
@@ -947,7 +947,7 @@ export default function App() {
               <img
                 src={iconPng}
                 alt=""
-                style={{ width: 24, height: 24, objectFit: "contain" }}
+                style={{ width: 35, height: 35, objectFit: "contain" }}
               />
             </div>
             <div
