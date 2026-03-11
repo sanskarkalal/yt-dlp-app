@@ -628,7 +628,7 @@ function initAppAutoUpdater() {
   }
 
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.setFeedURL({
     provider: "github",
     owner: GITHUB_OWNER,
@@ -683,45 +683,6 @@ function initAppAutoUpdater() {
       progress: 100,
       version: nextVersion,
     });
-
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      dialog
-        .showMessageBox(mainWindow, {
-          type: "info",
-          buttons: ["OK"],
-          defaultId: 0,
-          title: "Updating app",
-          message: "Updating app...",
-          detail: "The app will restart automatically.",
-          noLink: true,
-        })
-        .catch(() => {});
-    }
-
-    setTimeout(async () => {
-      pushAppUpdateState({
-        status: "installing",
-        message: "Installing update and restarting...",
-      });
-
-      if (isMac) {
-        try {
-          await installDownloadedMacUpdate(nextVersion);
-        } catch (err) {
-          const releaseUrl = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/tag/v${nextVersion}`;
-          pushAppUpdateState({
-            status: "error",
-            message:
-              err?.message ||
-              "Install failed. Open the release page and install manually.",
-          });
-          shell.openExternal(releaseUrl);
-        }
-        return;
-      }
-
-      autoUpdater.quitAndInstall(false, true);
-    }, 900);
   });
 
   autoUpdater.on("error", (err) => {
@@ -1163,6 +1124,10 @@ ipcMain.handle("check-for-app-update", async () => checkForAppUpdate());
 
 ipcMain.handle("install-app-update", () => {
   if (!appUpdateState.updateDownloaded) return false;
+  pushAppUpdateState({
+    status: "installing",
+    message: "Installing update and restarting...",
+  });
   if (isMac) {
     installDownloadedMacUpdate(appUpdateState.version).catch((err) => {
       pushAppUpdateState({

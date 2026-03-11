@@ -112,6 +112,15 @@ export default function App() {
   const [thumbnailCandidateIndex, setThumbnailCandidateIndex] = useState(0);
   const [showInstaLabel, setShowInstaLabel] = useState(false);
   const [appVersion, setAppVersion] = useState("");
+  const [appUpdate, setAppUpdate] = useState({
+    status: "idle",
+    message: "",
+    updateAvailable: false,
+    updateDownloaded: false,
+    progress: 0,
+    version: "",
+  });
+  const [installingAppUpdate, setInstallingAppUpdate] = useState(false);
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
 
@@ -200,6 +209,8 @@ export default function App() {
     });
     window.electronAPI.onCookiesStatus((ok) => setCookiesOk(ok));
     window.electronAPI.getAppVersion().then(setAppVersion);
+    window.electronAPI.getAppUpdateState().then(setAppUpdate);
+    window.electronAPI.onAppUpdate((state) => setAppUpdate(state));
   }, []);
 
   useEffect(() => {
@@ -673,6 +684,30 @@ export default function App() {
       : clipStart && clipEnd
         ? `Download Clip · ${selectedContainer.toUpperCase()}`
         : `Download · ${selectedContainer.toUpperCase()}`;
+
+  const appUpdateProgress = Math.max(
+    0,
+    Math.min(100, Math.round(Number(appUpdate?.progress || 0))),
+  );
+  const showAppUpdateCard = [
+    "checking",
+    "downloading",
+    "downloaded",
+    "installing",
+    "error",
+  ].includes(appUpdate?.status);
+  const canInstallAppUpdate =
+    appUpdate?.status === "downloaded" && !installingAppUpdate;
+
+  const installAppUpdate = async () => {
+    if (!canInstallAppUpdate) return;
+    setInstallingAppUpdate(true);
+    try {
+      await window.electronAPI.installAppUpdate();
+    } finally {
+      setInstallingAppUpdate(false);
+    }
+  };
 
   return (
     <ThemeCtx.Provider value={C}>
@@ -1604,6 +1639,94 @@ export default function App() {
             Contact me
           </span>
         </button>
+        {showAppUpdateCard && (
+          <div
+            style={{
+              position: "fixed",
+              left: 14,
+              bottom: 54,
+              zIndex: 35,
+              width: "min(460px, calc(100vw - 28px))",
+              WebkitAppRegion: "no-drag",
+              pointerEvents: "auto",
+              borderRadius: C.radius,
+              border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
+              background: C.neoMode ? C.surface : "rgba(12,15,23,0.9)",
+              boxShadow: C.neoMode
+                ? "3px 3px 0px 0px #000000"
+                : "0 10px 28px rgba(0,0,0,0.36)",
+              backdropFilter: C.neoMode ? "none" : "blur(8px)",
+              padding: C.neoMode ? "10px 10px" : "10px 11px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+              }}
+            >
+              <span
+                style={{
+                  color: C.textPrimary,
+                  fontSize: 12,
+                  fontWeight: C.neoMode ? 700 : 600,
+                  lineHeight: 1.3,
+                }}
+              >
+                {appUpdate?.message || "Checking for updates..."}
+              </span>
+              {(appUpdate?.status === "checking" ||
+                appUpdate?.status === "downloading" ||
+                appUpdate?.status === "installing") && (
+                <Loader2
+                  size={13}
+                  className="animate-spin"
+                  style={{ color: C.textFaint, flexShrink: 0 }}
+                />
+              )}
+            </div>
+            {appUpdate?.status === "downloading" && (
+              <div
+                style={{
+                  height: 8,
+                  borderRadius: C.neoMode ? 0 : 999,
+                  border: `${C.neoMode ? "2px" : "1px"} solid ${C.border}`,
+                  background: C.surfaceHigh,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${appUpdateProgress}%`,
+                    background: C.gradAccent,
+                    transition: "width 240ms ease",
+                  }}
+                />
+              </div>
+            )}
+            {appUpdate?.status === "downloaded" && (
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <Btn
+                  onClick={installAppUpdate}
+                  disabled={!canInstallAppUpdate}
+                  style={{
+                    height: C.neoMode ? 34 : 32,
+                    padding: "0 12px",
+                    fontSize: 11,
+                  }}
+                >
+                  {installingAppUpdate ? "Restarting..." : "Restart to update"}
+                </Btn>
+              </div>
+            )}
+          </div>
+        )}
         <div
           title="App version"
           style={{

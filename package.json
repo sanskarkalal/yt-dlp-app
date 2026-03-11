@@ -1,6 +1,6 @@
 {
   "name": "yt-dlp-app",
-  "version": "1.1.4",
+  "version": "1.1.6",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -19,7 +19,7 @@
   },
   "build": {
     "appId": "com.ytdlp.app",
-    "productName": "seedhe download by sanskar",
+    "productName": "seedhe download",
     "afterPack": "scripts/after-pack.cjs",
     "afterSign": "scripts/notarize.cjs",
     "directories": {
@@ -47,7 +47,13 @@
       "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
     },
     "files": [
       "dist/**/*",
