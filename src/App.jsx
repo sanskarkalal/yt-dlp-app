@@ -130,6 +130,10 @@ export default function App() {
     progress: 0,
     version: "",
   });
+  const [ytDlpStartup, setYtDlpStartup] = useState({
+    active: false,
+    message: "",
+  });
   const [installingAppUpdate, setInstallingAppUpdate] = useState(false);
   const progressRef = useRef(0);
   const animFrameRef = useRef(null);
@@ -223,6 +227,8 @@ export default function App() {
     window.electronAPI.getAppVersion().then(setAppVersion);
     window.electronAPI.getAppUpdateState().then(setAppUpdate);
     window.electronAPI.onAppUpdate((state) => setAppUpdate(state));
+    window.electronAPI.getYtDlpStartupState().then(setYtDlpStartup);
+    window.electronAPI.onYtDlpStartupStatus((state) => setYtDlpStartup(state));
   }, []);
 
   useEffect(() => {
@@ -1319,6 +1325,37 @@ export default function App() {
                 >
                   Not signed in: some sites may hide higher quality streams,
                   audio language tracks, subtitles, or full format options.
+                </p>
+              </div>
+            )}
+
+            {ytDlpStartup?.active && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "10px 12px",
+                  borderRadius: C.radius,
+                  background: C.surface,
+                  border: `${C.borderW} solid ${C.border}`,
+                  boxShadow: UI.infoCardShadow,
+                }}
+              >
+                <Loader2
+                  size={14}
+                  className="animate-spin"
+                  style={{ color: C.textMuted, flexShrink: 0 }}
+                />
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    lineHeight: 1.4,
+                    color: C.textFaint,
+                  }}
+                >
+                  {ytDlpStartup.message || "Preparing yt-dlp..."}
                 </p>
               </div>
             )}

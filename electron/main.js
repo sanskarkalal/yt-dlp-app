@@ -30,6 +30,10 @@ let appUpdateState = {
   progress: 0,
   version: app.getVersion(),
 };
+let ytDlpStartupState = {
+  active: false,
+  message: "",
+};
 
 // ---------------------------------------------------------------------------
 // Binary paths
@@ -591,6 +595,13 @@ function pushAppUpdateState(next) {
   }
 }
 
+function pushYtDlpStartupState(next) {
+  ytDlpStartupState = { ...ytDlpStartupState, ...next };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("yt-dlp-startup-status", ytDlpStartupState);
+  }
+}
+
 async function checkForAppUpdate() {
   if (!supportsAppAutoUpdate || !app.isPackaged) {
     return {
@@ -824,6 +835,14 @@ function cleanupPartialFiles(filesToDelete, fallbackDir) {
   }
 }
 
+function isLikelyIntermediateYtDlpFile(filePath) {
+  const name = path.basename(String(filePath || ""));
+  if (!name) return false;
+  if (name.endsWith(".part") || name.endsWith(".ytdl")) return true;
+  // yt-dlp temporary stream files often include stream ids like ".f137."
+  return /\.f\d+\./i.test(name);
+}
+
 function hasValidCookies(cookiePath) {
   if (!fs.existsSync(cookiePath)) return false;
   try {
@@ -927,6 +946,7 @@ function createWindow() {
 
   mainWindow.webContents.on("did-finish-load", () => {
     mainWindow.webContents.send("app-update", appUpdateState);
+    mainWindow.webContents.send("yt-dlp-startup-status", ytDlpStartupState);
   });
 
   // Some thumbnail CDNs block requests without browser-like headers.
@@ -950,7 +970,7 @@ function createWindow() {
   return mainWindow;
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Ensure bundled ffmpeg and ffprobe are executable
   if (!isWin) {
     for (const bin of [getFfmpegBin(), getFfprobeBin()]) {
@@ -971,7 +991,31 @@ app.whenReady().then(() => {
   console.log("[bin] yt-dlp exists:", fs.existsSync(getYtDlpPath()));
 
   initAppAutoUpdater();
-  checkAndUpdateYtDlp();
+  const YTDLP_UPDATE_WAIT_MS = 12000;
+  let startupWaitTimer = null;
+  pushYtDlpStartupState({
+    active: true,
+    message: "Checking yt-dlp updates...",
+  });
+  try {
+    await Promise.race([
+      checkAndUpdateYtDlp().finally(() => {
+        if (startupWaitTimer) clearTimeout(startupWaitTimer);
+      }),
+      new Promise((resolve) => {
+        startupWaitTimer = setTimeout(() => {
+          console.log(
+            `[update] Continuing startup after ${YTDLP_UPDATE_WAIT_MS}ms timeout`,
+          );
+          resolve();
+        }, YTDLP_UPDATE_WAIT_MS);
+      }),
+    ]);
+  } catch (err) {
+    console.warn("[update] Startup wait failed:", err?.message || err);
+  } finally {
+    pushYtDlpStartupState({ active: false, message: "" });
+  }
 });
 
 app.on("window-all-closed", () => {
@@ -1119,6 +1163,7 @@ ipcMain.handle("clear-cookies", () => {
 ipcMain.handle("get-app-version", () => app.getVersion());
 
 ipcMain.handle("get-app-update-state", () => appUpdateState);
+ipcMain.handle("get-yt-dlp-startup-state", () => ytDlpStartupState);
 
 ipcMain.handle("check-for-app-update", async () => checkForAppUpdate());
 
@@ -1178,7 +1223,8 @@ ipcMain.handle("get-video-info", async (_, url) => {
         if (isAgeRestricted) return resolve({ ageRestricted: true });
         const isBotDetected =
           errorOutput.includes("Sign in to confirm you") ||
-          errorOutput.includes("confirm you're not a bot");
+          errorOutput.includes("confirm you're not a bot") ||
+          errorOutput.includes("The page needs to be reloaded");
         if (isBotDetected) return resolve({ botDetected: true });
         return reject(new Error(`yt-dlp failed: ${errorOutput.slice(0, 300)}`));
       }
@@ -1460,6 +1506,7 @@ ipcMain.handle(
       const proc = spawn(getYtDlpPath(), args, { env: getYtDlpEnv() });
       activeDownload = proc;
       activeDownloadSavePath = savePath;
+      let stderrOutput = "";
 
       let downloadPhase = 0;
       let outputFilePath = null;
@@ -1564,6 +1611,7 @@ ipcMain.handle(
 
       proc.stderr.on("data", (d) => {
         const line = d.toString();
+        stderrOutput += line;
         console.error(line);
         const phaseIndex = Math.max(0, downloadPhase - 1);
 
@@ -1638,10 +1686,43 @@ ipcMain.handle(
           resolve({ cancelled: true });
         } else {
           // Error path
+          const isChallenge =
+            stderrOutput.includes("confirm you're not a bot") ||
+            stderrOutput.includes("Sign in to confirm you") ||
+            stderrOutput.includes("The page needs to be reloaded");
+          const isAgeRestricted =
+            stderrOutput.includes("Sign in to confirm your age") ||
+            stderrOutput.includes("age-restricted") ||
+            stderrOutput.includes("inappropriate for some users");
+          const filesToDelete = activeDownloadFiles.filter(
+            isLikelyIntermediateYtDlpFile,
+          );
+          cleanupPartialFiles(filesToDelete, savePath);
           cancelRequested = false;
           activeDownloadFiles = [];
           activeDownloadSavePath = null;
-          reject(new Error("Download failed"));
+          if (isAgeRestricted) {
+            return reject(
+              new Error(
+                "Download blocked by YouTube age restriction. Sign in and try again.",
+              ),
+            );
+          }
+          if (isChallenge) {
+            return reject(
+              new Error(
+                "YouTube challenge detected (reload/bot check). Re-authenticate or retry later.",
+              ),
+            );
+          }
+          const msg = (stderrOutput || "")
+            .split(/\r?\n/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .slice(-6)
+            .join(" | ")
+            .slice(0, 600);
+          reject(new Error(msg ? `Download failed: ${msg}` : "Download failed"));
         }
       });
     });

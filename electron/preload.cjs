@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   clearCookies: () => ipcRenderer.invoke("clear-cookies"),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
   getAppUpdateState: () => ipcRenderer.invoke("get-app-update-state"),
+  getYtDlpStartupState: () => ipcRenderer.invoke("get-yt-dlp-startup-state"),
   checkForAppUpdate: () => ipcRenderer.invoke("check-for-app-update"),
   installAppUpdate: () => ipcRenderer.invoke("install-app-update"),
   onProgress: (cb) => {
@@ -20,6 +21,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onAppUpdate: (cb) => {
     ipcRenderer.removeAllListeners("app-update");
     ipcRenderer.on("app-update", (_, state) => cb(state));
+  },
+  onYtDlpStartupStatus: (cb) => {
+    ipcRenderer.removeAllListeners("yt-dlp-startup-status");
+    ipcRenderer.on("yt-dlp-startup-status", (_, state) => cb(state));
   },
   onCookiesStatus: (cb) => {
     ipcRenderer.removeAllListeners("cookies-status");
