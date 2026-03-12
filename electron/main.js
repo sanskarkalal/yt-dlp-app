@@ -19,9 +19,11 @@ const isMac = process.platform === "darwin";
 const { autoUpdater } = electronUpdaterPkg;
 const supportsAppAutoUpdate = isWin || isMac;
 const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const YTDLP_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const GITHUB_OWNER = "sanskarkalal";
 const GITHUB_REPO = "yt-dlp-app";
 let appUpdateInterval = null;
+let ytDlpUpdateInterval = null;
 let appUpdateState = {
   status: "idle",
   message: "Not checked yet",
@@ -34,6 +36,7 @@ let ytDlpStartupState = {
   active: false,
   message: "",
 };
+let ytDlpVersionForUi = "";
 
 // ---------------------------------------------------------------------------
 // Binary paths
@@ -213,6 +216,21 @@ function getYtDlpVersion(binaryPath) {
   } catch {
     return null;
   }
+}
+
+function setYtDlpVersionForUi(version) {
+  const normalized = String(version || "").trim();
+  if (normalized) ytDlpVersionForUi = normalized;
+}
+
+function getYtDlpVersionForUi() {
+  if (ytDlpVersionForUi) return ytDlpVersionForUi;
+  const cached = String(readUpdateState()?.currentVersion || "").trim();
+  if (cached) {
+    ytDlpVersionForUi = cached;
+    return cached;
+  }
+  return null;
 }
 
 function fetchLatestYtDlpVersion() {
@@ -516,6 +534,7 @@ async function checkAndUpdateYtDlp() {
     const ONE_DAY_MS = 24 * 60 * 60 * 1000;
     const state = readUpdateState();
     const now = Date.now();
+    setYtDlpVersionForUi(state.currentVersion);
 
     if (now - state.lastChecked < ONE_DAY_MS) {
       console.log("[update] Skipping check — last checked less than 24h ago");
@@ -525,6 +544,7 @@ async function checkAndUpdateYtDlp() {
     console.log("[update] Checking for yt-dlp update...");
 
     const currentVersion = getYtDlpVersion(getYtDlpPath());
+    setYtDlpVersionForUi(currentVersion);
     console.log(
       "[update] Current yt-dlp version:",
       currentVersion ?? "(unknown)",
@@ -547,6 +567,7 @@ async function checkAndUpdateYtDlp() {
     if (currentVersion && currentVersion === latestVersion) {
       console.log("[update] yt-dlp is already up to date");
       writeUpdateState({ lastChecked: now, currentVersion });
+      setYtDlpVersionForUi(currentVersion);
       return;
     }
 
@@ -583,6 +604,7 @@ async function checkAndUpdateYtDlp() {
       `[update] yt-dlp updated successfully: ${currentVersion ?? "?"} → ${newVersion}`,
     );
     writeUpdateState({ lastChecked: now, currentVersion: newVersion });
+    setYtDlpVersionForUi(newVersion);
   } catch (err) {
     console.error("[update] yt-dlp auto-update failed:", err.message);
   }
@@ -1016,12 +1038,23 @@ app.whenReady().then(async () => {
   } finally {
     pushYtDlpStartupState({ active: false, message: "" });
   }
+
+  if (ytDlpUpdateInterval) clearInterval(ytDlpUpdateInterval);
+  ytDlpUpdateInterval = setInterval(() => {
+    checkAndUpdateYtDlp().catch((err) => {
+      console.warn("[update] Scheduled yt-dlp check failed:", err?.message || err);
+    });
+  }, YTDLP_UPDATE_CHECK_INTERVAL_MS);
 });
 
 app.on("window-all-closed", () => {
   if (appUpdateInterval) {
     clearInterval(appUpdateInterval);
     appUpdateInterval = null;
+  }
+  if (ytDlpUpdateInterval) {
+    clearInterval(ytDlpUpdateInterval);
+    ytDlpUpdateInterval = null;
   }
   if (!isMac) app.quit();
 });
@@ -1161,7 +1194,7 @@ ipcMain.handle("clear-cookies", () => {
 });
 
 ipcMain.handle("get-app-version", () => app.getVersion());
-ipcMain.handle("get-yt-dlp-version", () => getYtDlpVersion(getYtDlpPath()));
+ipcMain.handle("get-yt-dlp-version", () => getYtDlpVersionForUi());
 
 ipcMain.handle("get-app-update-state", () => appUpdateState);
 ipcMain.handle("get-yt-dlp-startup-state", () => ytDlpStartupState);
