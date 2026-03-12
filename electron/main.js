@@ -1161,6 +1161,7 @@ ipcMain.handle("clear-cookies", () => {
 });
 
 ipcMain.handle("get-app-version", () => app.getVersion());
+ipcMain.handle("get-yt-dlp-version", () => getYtDlpVersion(getYtDlpPath()));
 
 ipcMain.handle("get-app-update-state", () => appUpdateState);
 ipcMain.handle("get-yt-dlp-startup-state", () => ytDlpStartupState);

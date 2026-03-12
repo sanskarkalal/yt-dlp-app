@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openYouTubeLogin: (opts) => ipcRenderer.invoke("open-youtube-login", opts),
   clearCookies: () => ipcRenderer.invoke("clear-cookies"),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+  getYtDlpVersion: () => ipcRenderer.invoke("get-yt-dlp-version"),
   getAppUpdateState: () => ipcRenderer.invoke("get-app-update-state"),
   getYtDlpStartupState: () => ipcRenderer.invoke("get-yt-dlp-startup-state"),
   checkForAppUpdate: () => ipcRenderer.invoke("check-for-app-update"),

@@ -122,6 +122,7 @@ export default function App() {
   const [showInstaLabel, setShowInstaLabel] = useState(false);
   const [contactDockedLeft, setContactDockedLeft] = useState(false);
   const [appVersion, setAppVersion] = useState("");
+  const [ytDlpVersion, setYtDlpVersion] = useState("");
   const [appUpdate, setAppUpdate] = useState({
     status: "idle",
     message: "",
@@ -225,6 +226,7 @@ export default function App() {
     });
     window.electronAPI.onCookiesStatus((ok) => setCookiesOk(ok));
     window.electronAPI.getAppVersion().then(setAppVersion);
+    window.electronAPI.getYtDlpVersion().then((v) => setYtDlpVersion(v || ""));
     window.electronAPI.getAppUpdateState().then(setAppUpdate);
     window.electronAPI.onAppUpdate((state) => setAppUpdate(state));
     window.electronAPI.getYtDlpStartupState().then(setYtDlpStartup);
@@ -884,7 +886,6 @@ export default function App() {
             </div>
           </div>
         )}
-
         {/* ── Ambient lighting layer ── */}
         <div
           style={{
@@ -955,7 +956,6 @@ export default function App() {
             }}
           />
         </div>
-
         <div
           className="content-fade-in"
           style={{
@@ -1077,7 +1077,9 @@ export default function App() {
                     size={12}
                     style={{
                       transition: "transform 0.15s ease",
-                      transform: themeMenuOpen ? "rotate(180deg)" : "rotate(0deg)",
+                      transform: themeMenuOpen
+                        ? "rotate(180deg)"
+                        : "rotate(0deg)",
                     }}
                   />
                 </button>
@@ -1752,68 +1754,70 @@ export default function App() {
         {(() => {
           const contactExpanded = showInstaLabel;
           return (
-          <button
-            onClick={() => window.electronAPI.openExternal(INSTAGRAM_DM_URL)}
-            onMouseEnter={() => setShowInstaLabel(true)}
-            onMouseLeave={() => setShowInstaLabel(false)}
-            onFocus={() => setShowInstaLabel(true)}
-            onBlur={() => setShowInstaLabel(false)}
-            title="Instagram contact"
-            aria-label="Contact me on Instagram"
-            style={{
-              position: "fixed",
-              right: contactDockedLeft ? "auto" : 14,
-              left: contactDockedLeft ? 14 : "auto",
-              bottom: contactDockedLeft ? 54 : 14,
-              zIndex: contactDockedLeft ? 36 : 35,
-              WebkitAppRegion: "no-drag",
-              pointerEvents: "auto",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: contactExpanded ? 7 : 0,
-              width: contactExpanded ? 118 : 34,
-              height: 34,
-              padding: contactExpanded
-                ? UI.contactExpandedPadding
-                : UI.contactCollapsedPadding,
-              borderRadius: C.radius,
-              border: `${UI.floatingBorderWidth} solid ${C.border}`,
-              background: UI.floatingBg,
-              boxShadow: UI.floatingShadow,
-              color: C.textMuted,
-              fontSize: 11,
-              fontWeight: UI.floatingFontWeight,
-              fontFamily: C.fontBody || C.fontDisplay,
-              backdropFilter: UI.floatingBackdrop,
-              WebkitBackdropFilter: UI.floatingBackdrop,
-              cursor: "pointer",
-              appearance: "none",
-              outline: "none",
-              overflow: "hidden",
-              animation: contactDockedLeft
-                ? "contactSlideInFromLeft 220ms cubic-bezier(0.22,1,0.36,1)"
-                : "none",
-              transition:
-                "width 220ms cubic-bezier(0.4,0,0.2,1), gap 220ms cubic-bezier(0.4,0,0.2,1), padding 220ms cubic-bezier(0.4,0,0.2,1)",
-            }}
-          >
-            <Instagram size={13} style={{ flexShrink: 0 }} />
-            <span
+            <button
+              onClick={() => window.electronAPI.openExternal(INSTAGRAM_DM_URL)}
+              onMouseEnter={() => setShowInstaLabel(true)}
+              onMouseLeave={() => setShowInstaLabel(false)}
+              onFocus={() => setShowInstaLabel(true)}
+              onBlur={() => setShowInstaLabel(false)}
+              title="Instagram contact"
+              aria-label="Contact me on Instagram"
               style={{
-                maxWidth: contactExpanded ? 70 : 0,
-                opacity: contactExpanded ? 1 : 0,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                transform: contactExpanded ? "translateX(0)" : "translateX(-4px)",
+                position: "fixed",
+                right: contactDockedLeft ? "auto" : 14,
+                left: contactDockedLeft ? 14 : "auto",
+                bottom: contactDockedLeft ? 54 : 14,
+                zIndex: contactDockedLeft ? 36 : 35,
+                WebkitAppRegion: "no-drag",
+                pointerEvents: "auto",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: contactExpanded ? 7 : 0,
+                width: contactExpanded ? 118 : 34,
+                height: 34,
+                padding: contactExpanded
+                  ? UI.contactExpandedPadding
+                  : UI.contactCollapsedPadding,
+                borderRadius: C.radius,
+                border: `${UI.floatingBorderWidth} solid ${C.border}`,
+                background: UI.floatingBg,
+                boxShadow: UI.floatingShadow,
+                color: C.textMuted,
+                fontSize: 11,
+                fontWeight: UI.floatingFontWeight,
                 fontFamily: C.fontBody || C.fontDisplay,
+                backdropFilter: UI.floatingBackdrop,
+                WebkitBackdropFilter: UI.floatingBackdrop,
+                cursor: "pointer",
+                appearance: "none",
+                outline: "none",
+                overflow: "hidden",
+                animation: contactDockedLeft
+                  ? "contactSlideInFromLeft 220ms cubic-bezier(0.22,1,0.36,1)"
+                  : "none",
                 transition:
-                  "max-width 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease, transform 220ms cubic-bezier(0.4,0,0.2,1)",
+                  "width 220ms cubic-bezier(0.4,0,0.2,1), gap 220ms cubic-bezier(0.4,0,0.2,1), padding 220ms cubic-bezier(0.4,0,0.2,1)",
               }}
             >
-              Contact me
-            </span>
-          </button>
+              <Instagram size={13} style={{ flexShrink: 0 }} />
+              <span
+                style={{
+                  maxWidth: contactExpanded ? 70 : 0,
+                  opacity: contactExpanded ? 1 : 0,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  transform: contactExpanded
+                    ? "translateX(0)"
+                    : "translateX(-4px)",
+                  fontFamily: C.fontBody || C.fontDisplay,
+                  transition:
+                    "max-width 220ms cubic-bezier(0.4,0,0.2,1), opacity 180ms ease, transform 220ms cubic-bezier(0.4,0,0.2,1)",
+                }}
+              >
+                Contact me
+              </span>
+            </button>
           );
         })()}
         {showAppUpdateCard && (
@@ -1903,7 +1907,7 @@ export default function App() {
           </div>
         )}
         <div
-          title="App version"
+          title="App and yt-dlp versions"
           style={{
             position: "fixed",
             left: 14,
@@ -1925,7 +1929,11 @@ export default function App() {
             WebkitBackdropFilter: UI.floatingBackdrop,
           }}
         >
-          {`v${appVersion || "?"}`}
+          <span>{`v${appVersion || "?"} · yt-dlp ${ytDlpVersion || "?"}`}</span>
+          <span style={{ color: "#ef4444", marginLeft: 8 }}>
+            **yt-dlp is experiencing issues please use signed out mode till next
+            version update**
+          </span>
         </div>
       </div>
     </ThemeCtx.Provider>
