@@ -237,7 +237,7 @@ function fetchLatestYtDlpVersion() {
   return new Promise((resolve) => {
     const options = {
       hostname: "api.github.com",
-      path: "/repos/yt-dlp/yt-dlp/releases/latest",
+      path: "/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest",
       headers: { "User-Agent": "seedhe-download-app" },
     };
     const req = https.get(options, (res) => {
@@ -573,11 +573,11 @@ async function checkAndUpdateYtDlp() {
 
     let downloadUrl;
     if (isWin) {
-      downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/download/${latestVersion}/yt-dlp.exe`;
+      downloadUrl = `https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/${latestVersion}/yt-dlp.exe`;
     } else if (isMac) {
-      downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/download/${latestVersion}/yt-dlp_macos`;
+      downloadUrl = `https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/${latestVersion}/yt-dlp_macos`;
     } else {
-      downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/download/${latestVersion}/yt-dlp`;
+      downloadUrl = `https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/${latestVersion}/yt-dlp`;
     }
 
     const destPath = getUpdatedYtDlpPath();
