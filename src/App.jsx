@@ -1930,10 +1930,6 @@ export default function App() {
           }}
         >
           <span>{`v${appVersion || "?"} · yt-dlp ${ytDlpVersion || "?"}`}</span>
-          <span style={{ color: "#ef4444", marginLeft: 8 }}>
-            **yt-dlp is experiencing issues please use signed out mode till next
-            version update**
-          </span>
         </div>
       </div>
     </ThemeCtx.Provider>
