@@ -206,14 +206,22 @@ function writeUpdateState(state) {
   }
 }
 
-function getYtDlpVersion(binaryPath) {
+function getYtDlpVersion(binaryPath, { logErrors = false } = {}) {
   try {
     const out = execFileSync(binaryPath, ["--version"], {
       timeout: 10000,
-      env: getYtDlpEnv(),
+      env: getYtDlpExecEnv(),
     });
     return out.toString().trim();
-  } catch {
+  } catch (err) {
+    if (logErrors) {
+      const stderr = String(err?.stderr || "").trim();
+      const stdout = String(err?.stdout || "").trim();
+      const details = stderr || stdout || err?.message || "unknown error";
+      console.error(
+        `[update] yt-dlp version check failed for ${binaryPath}: ${details}`,
+      );
+    }
     return null;
   }
 }
@@ -237,7 +245,7 @@ function fetchLatestYtDlpVersion() {
   return new Promise((resolve) => {
     const options = {
       hostname: "api.github.com",
-      path: "/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest",
+      path: "/repos/yt-dlp/yt-dlp/releases/latest",
       headers: { "User-Agent": "seedhe-download-app" },
     };
     const req = https.get(options, (res) => {
@@ -262,7 +270,6 @@ function fetchLatestYtDlpVersion() {
 
 function downloadFile(url, destPath) {
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destPath);
     const request = https.get(
       url,
       { headers: { "User-Agent": "seedhe-download-app" } },
@@ -272,29 +279,41 @@ function downloadFile(url, destPath) {
           res.statusCode < 400 &&
           res.headers.location
         ) {
-          file.close();
-          fs.unlink(destPath, () => {});
           return downloadFile(res.headers.location, destPath)
             .then(resolve)
             .catch(reject);
         }
         if (res.statusCode !== 200) {
-          file.close();
-          fs.unlink(destPath, () => {});
           return reject(new Error(`HTTP ${res.statusCode}`));
         }
-        res.pipe(file);
+        const file = fs.createWriteStream(destPath);
+        let settled = false;
+
+        const fail = (err) => {
+          if (settled) return;
+          settled = true;
+          file.close(() => {
+            fs.unlink(destPath, () => {});
+            reject(err);
+          });
+        };
+
+        file.on("error", fail);
         file.on("finish", () => {
-          file.close();
-          resolve();
+          file.close((closeErr) => {
+            if (settled) return;
+            if (closeErr) {
+              settled = true;
+              return reject(closeErr);
+            }
+            settled = true;
+            resolve();
+          });
         });
+        res.pipe(file);
       },
     );
-    request.on("error", (err) => {
-      file.close();
-      fs.unlink(destPath, () => {});
-      reject(err);
-    });
+    request.on("error", reject);
     request.setTimeout(60000, () => {
       request.destroy();
       reject(new Error("Download timed out"));
@@ -573,11 +592,11 @@ async function checkAndUpdateYtDlp() {
 
     let downloadUrl;
     if (isWin) {
-      downloadUrl = `https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/${latestVersion}/yt-dlp.exe`;
+      downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/download/${latestVersion}/yt-dlp.exe`;
     } else if (isMac) {
-      downloadUrl = `https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/${latestVersion}/yt-dlp_macos`;
+      downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/download/${latestVersion}/yt-dlp_macos`;
     } else {
-      downloadUrl = `https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/${latestVersion}/yt-dlp`;
+      downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/download/${latestVersion}/yt-dlp`;
     }
 
     const destPath = getUpdatedYtDlpPath();
@@ -590,7 +609,7 @@ async function checkAndUpdateYtDlp() {
       fs.chmodSync(tempPath, 0o755);
     }
 
-    const newVersion = getYtDlpVersion(tempPath);
+    const newVersion = getYtDlpVersion(tempPath, { logErrors: true });
     if (!newVersion) {
       fs.unlink(tempPath, () => {});
       console.error(
@@ -794,8 +813,15 @@ function getYtDlpEnv() {
   const ffmpegDir = path.dirname(getFfmpegBin());
   return {
     ...process.env,
-    ELECTRON_RUN_AS_NODE: "1",
     PATH: `${shimDir}${path.delimiter}${ffmpegDir}${path.delimiter}${process.env.PATH || ""}`,
+  };
+}
+
+function getYtDlpExecEnv() {
+  const ffmpegDir = path.dirname(getFfmpegBin());
+  return {
+    ...process.env,
+    PATH: `${ffmpegDir}${path.delimiter}${process.env.PATH || ""}`,
   };
 }
 
@@ -915,6 +941,24 @@ function normalizePathForShell(filePath) {
     .trim()
     .normalize("NFC");
   return path.normalize(cleaned);
+}
+
+function parseClockToSeconds(clockValue) {
+  const m = String(clockValue || "").match(/^(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)$/);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  const ss = Number(m[3]);
+  if ([hh, mm, ss].some((n) => Number.isNaN(n))) return null;
+  return hh * 3600 + mm * 60 + ss;
+}
+
+function parseHmsToSeconds(value) {
+  const parts = String(value || "").split(":").map((v) => Number(v));
+  if (parts.some((n) => Number.isNaN(n))) return null;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return null;
 }
 
 function siteArgs(url) {
@@ -1544,6 +1588,14 @@ ipcMain.handle(
 
       let downloadPhase = 0;
       let outputFilePath = null;
+      const clipStartSec = parseHmsToSeconds(clipStart);
+      const clipEndSec = parseHmsToSeconds(clipEnd);
+      const clipDurationSec =
+        clipStartSec != null &&
+        clipEndSec != null &&
+        clipEndSec > clipStartSec
+          ? clipEndSec - clipStartSec
+          : null;
 
       // Determine expected phases upfront for accurate progress scaling:
       // - audioOnly: 1 download phase + ExtractAudio conversion
@@ -1647,7 +1699,63 @@ ipcMain.handle(
         const line = d.toString();
         stderrOutput += line;
         console.error(line);
+
+        const alreadyMatch = line.match(
+          /\[download\] (.+) has already been downloaded/,
+        );
+        if (alreadyMatch)
+          outputFilePath = path.normalize(alreadyMatch[1].trim());
+
+        const destMatch = line.match(/\[download\] Destination:\s+(.+)/);
+        if (destMatch) {
+          outputFilePath = path.normalize(destMatch[1].trim());
+          if (!activeDownloadFiles.includes(outputFilePath))
+            activeDownloadFiles.push(outputFilePath);
+          const partPath = outputFilePath + ".part";
+          if (!activeDownloadFiles.includes(partPath))
+            activeDownloadFiles.push(partPath);
+
+          const actualPhase = (downloadPhase || 0) + 1;
+          downloadPhase = actualPhase;
+          if (actualPhase > expectedPhases) expectedPhases = actualPhase;
+          hlsTotalSegs[downloadPhase - 1] = null;
+          hlsDoneSegs[downloadPhase - 1] = 0;
+        }
+
+        if (
+          line.includes("[Merger]") ||
+          line.includes("[ExtractAudio]") ||
+          line.includes("[ffmpeg]")
+        ) {
+          win.webContents.send("download-progress", 88);
+        }
+
+        const pctMatch = line.match(/\[download\]\s+([\d.]+)%/);
+        if (pctMatch) {
+          const pct = parseFloat(pctMatch[1]);
+          const phaseIndexForPct = Math.max(0, downloadPhase - 1);
+          const scaled = Math.round(
+            phaseIndexForPct * (85 / expectedPhases) +
+              (pct / 100) * (85 / expectedPhases),
+          );
+          win.webContents.send("download-progress", Math.min(scaled, 85));
+        }
+
         const phaseIndex = Math.max(0, downloadPhase - 1);
+
+        // For clipped downloads, ffmpeg emits live progress via "time=HH:MM:SS.xx"
+        // even when yt-dlp's [download] % updates are sparse.
+        if (clipDurationSec && clipDurationSec > 0) {
+          const ffmpegTimeMatch = line.match(/time=(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
+          if (ffmpegTimeMatch) {
+            const elapsed = parseClockToSeconds(ffmpegTimeMatch[1]);
+            if (elapsed != null) {
+              const pct = Math.max(0, Math.min(1, elapsed / clipDurationSec));
+              const scaled = Math.round(88 + pct * 11);
+              win.webContents.send("download-progress", Math.min(scaled, 99));
+            }
+          }
+        }
 
         // Extract total segment count from URL params:
         // gosq/NNN (YouTube HLS) or nsegs=NNN or EXT-X-MEDIA-SEQUENCE patterns
