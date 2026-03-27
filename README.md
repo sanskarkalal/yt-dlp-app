@@ -28,7 +28,7 @@ Download the latest installer from [Releases](../../releases).
 If macOS blocks launch for an unsigned/local build, run:
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/seedhe download by sanskar.app"
+xattr -dr com.apple.quarantine "/Applications/seedhe download.app"
 ```
 
 ## Run from source (developers)
