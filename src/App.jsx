@@ -633,10 +633,10 @@ export default function App() {
       const fmtId = vfid
         ? forcePreferredAudioTrack
           ? isManualVideoAudioTrack
-            ? `${vfid}+${effectiveVideoAudioTrackId}`
-            : `${vfid}+${effectiveVideoAudioTrackId}/${vfid}+bestaudio/best`
+            ? `${vfid}+${effectiveVideoAudioTrackId}/${vfid}+bestaudio`
+            : `${vfid}+${effectiveVideoAudioTrackId}/${vfid}+bestaudio`
           : !audioOnly
-            ? `${vfid}+bestaudio[language^=en]/${vfid}+bestaudio/best`
+            ? `${vfid}+bestaudio[language^=en]/${vfid}+bestaudio`
             : hasMuxed
               ? vfid
               : `${vfid}+bestaudio/best`
@@ -646,6 +646,8 @@ export default function App() {
         url,
         formatId: fmtId,
         container: selectedContainer,
+        videoCodec: selectedCodec,
+        durationSeconds: duration || null,
         savePath,
         height: selectedHeight,
         clipStart: effectiveStart,

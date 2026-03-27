@@ -990,6 +990,23 @@ function isInstagramUrl(url) {
   );
 }
 
+function isYouTubeUrl(url) {
+  const u = String(url || "").toLowerCase();
+  return (
+    u.includes("youtube.com/") ||
+    u.includes("youtu.be/") ||
+    u.includes("youtube-nocookie.com/")
+  );
+}
+
+function ensureVideoFormatHasAudio(formatId) {
+  const raw = String(formatId || "").trim();
+  if (!raw) return "bestvideo+bestaudio/best";
+  if (!raw.includes("+")) return `${raw}+bestaudio/${raw}+bestaudio/best`;
+  if (raw.includes("bestaudio")) return `${raw}/bestvideo+bestaudio/best`;
+  return `${raw}+bestaudio/${raw}/bestvideo+bestaudio/best`;
+}
+
 // ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
@@ -1500,6 +1517,8 @@ ipcMain.handle(
       url,
       formatId,
       container,
+      videoCodec,
+      durationSeconds,
       height,
       savePath,
       clipStart,
@@ -1516,6 +1535,7 @@ ipcMain.handle(
     return new Promise((resolve, reject) => {
       const win = BrowserWindow.fromWebContents(event.sender);
       let args;
+      let forcePremiereSafeMp4 = false;
 
       if (audioOnly) {
         const quality = audioQuality || "192";
@@ -1551,23 +1571,28 @@ ipcMain.handle(
         ];
       } else {
         const safeAudioTag = videoAudioTag ? ` [${videoAudioTag}]` : "";
-        const instagramForPremiere = isInstagramUrl(url);
-        const effectiveContainer = instagramForPremiere ? "mp4" : container;
-        const videoPostprocessorArgs = instagramForPremiere
-          ? "ffmpeg:-c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart -y"
-          : "ffmpeg:-y";
+        const effectiveFormatId = ensureVideoFormatHasAudio(formatId);
+        forcePremiereSafeMp4 = String(container || "").toLowerCase() === "mp4";
+        const effectiveContainer = forcePremiereSafeMp4 ? "mp4" : container;
+        const workingContainer = forcePremiereSafeMp4 ? "mkv" : effectiveContainer;
         args = [
           "-f",
-          formatId,
+          effectiveFormatId,
           "--merge-output-format",
-          effectiveContainer,
+          workingContainer,
           "--remux-video",
-          effectiveContainer,
-          ...(instagramForPremiere ? ["--recode-video", "mp4"] : []),
+          workingContainer,
+          ...(forcePremiereSafeMp4 ? ["--recode-video", "mp4"] : []),
           "--ffmpeg-location",
           getFfmpegBin(),
           "--postprocessor-args",
-          videoPostprocessorArgs,
+          "ffmpeg:-y",
+          ...(forcePremiereSafeMp4
+            ? [
+                "--postprocessor-args",
+                "VideoConvertor+ffmpeg:-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 192k -ar 48000 -ac 2 -movflags +faststart -vsync cfr -y",
+              ]
+            : []),
           ...resolveJsRuntimeArgs(),
           ...cookieArgs(),
           ...siteArgs(url),
@@ -1611,6 +1636,9 @@ ipcMain.handle(
         clipEndSec > clipStartSec
           ? clipEndSec - clipStartSec
           : null;
+      const sourceDurationSec = Number(durationSeconds) > 0 ? Number(durationSeconds) : null;
+      const ffmpegProgressDurationSec =
+        clipDurationSec && clipDurationSec > 0 ? clipDurationSec : sourceDurationSec;
 
       // Determine expected phases upfront for accurate progress scaling:
       // - audioOnly: 1 download phase + ExtractAudio conversion
@@ -1659,6 +1687,18 @@ ipcMain.handle(
         const remuxDest = line.match(/\[VideoRemuxer\] Destination:\s+(.+)/);
         if (remuxDest) {
           outputFilePath = path.normalize(remuxDest[1].trim());
+          if (!activeDownloadFiles.includes(outputFilePath))
+            activeDownloadFiles.push(outputFilePath);
+        }
+        const convertToQuoted = line.match(/\[VideoConvertor\].* to "(.+)"/);
+        if (convertToQuoted) {
+          outputFilePath = path.normalize(convertToQuoted[1].trim());
+          if (!activeDownloadFiles.includes(outputFilePath))
+            activeDownloadFiles.push(outputFilePath);
+        }
+        const convertDest = line.match(/\[VideoConvertor\] Destination:\s+(.+)/);
+        if (convertDest) {
+          outputFilePath = path.normalize(convertDest[1].trim());
           if (!activeDownloadFiles.includes(outputFilePath))
             activeDownloadFiles.push(outputFilePath);
         }
@@ -1736,6 +1776,18 @@ ipcMain.handle(
           hlsTotalSegs[downloadPhase - 1] = null;
           hlsDoneSegs[downloadPhase - 1] = 0;
         }
+        const convertToQuoted = line.match(/\[VideoConvertor\].* to "(.+)"/);
+        if (convertToQuoted) {
+          outputFilePath = path.normalize(convertToQuoted[1].trim());
+          if (!activeDownloadFiles.includes(outputFilePath))
+            activeDownloadFiles.push(outputFilePath);
+        }
+        const convertDest = line.match(/\[VideoConvertor\] Destination:\s+(.+)/);
+        if (convertDest) {
+          outputFilePath = path.normalize(convertDest[1].trim());
+          if (!activeDownloadFiles.includes(outputFilePath))
+            activeDownloadFiles.push(outputFilePath);
+        }
 
         if (
           line.includes("[Merger]") ||
@@ -1758,14 +1810,14 @@ ipcMain.handle(
 
         const phaseIndex = Math.max(0, downloadPhase - 1);
 
-        // For clipped downloads, ffmpeg emits live progress via "time=HH:MM:SS.xx"
-        // even when yt-dlp's [download] % updates are sparse.
-        if (clipDurationSec && clipDurationSec > 0) {
+        // ffmpeg emits live progress via "time=HH:MM:SS.xx" during trim/recode.
+        // Use clip duration when clipping, else full source duration.
+        if (ffmpegProgressDurationSec && ffmpegProgressDurationSec > 0) {
           const ffmpegTimeMatch = line.match(/time=(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
           if (ffmpegTimeMatch) {
             const elapsed = parseClockToSeconds(ffmpegTimeMatch[1]);
             if (elapsed != null) {
-              const pct = Math.max(0, Math.min(1, elapsed / clipDurationSec));
+              const pct = Math.max(0, Math.min(1, elapsed / ffmpegProgressDurationSec));
               const scaled = Math.round(88 + pct * 11);
               win.webContents.send("download-progress", Math.min(scaled, 99));
             }
