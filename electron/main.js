@@ -981,6 +981,15 @@ function siteArgs(url) {
   return [];
 }
 
+function isInstagramUrl(url) {
+  const u = String(url || "").toLowerCase();
+  return (
+    u.includes("instagram.com/") ||
+    u.includes("instagr.am/") ||
+    u.includes("ig.me/")
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
@@ -1542,17 +1551,23 @@ ipcMain.handle(
         ];
       } else {
         const safeAudioTag = videoAudioTag ? ` [${videoAudioTag}]` : "";
+        const instagramForPremiere = isInstagramUrl(url);
+        const effectiveContainer = instagramForPremiere ? "mp4" : container;
+        const videoPostprocessorArgs = instagramForPremiere
+          ? "ffmpeg:-c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart -y"
+          : "ffmpeg:-y";
         args = [
           "-f",
           formatId,
           "--merge-output-format",
-          container,
+          effectiveContainer,
           "--remux-video",
-          container,
+          effectiveContainer,
+          ...(instagramForPremiere ? ["--recode-video", "mp4"] : []),
           "--ffmpeg-location",
           getFfmpegBin(),
           "--postprocessor-args",
-          "ffmpeg:-y",
+          videoPostprocessorArgs,
           ...resolveJsRuntimeArgs(),
           ...cookieArgs(),
           ...siteArgs(url),
@@ -1563,8 +1578,8 @@ ipcMain.handle(
           path.join(
             savePath,
             clipStart && clipEnd
-              ? `%(title)s [${height}p ${container}]${safeAudioTag} [clip ${clipStart.replace(/:/g, ".")}-${clipEnd.replace(/:/g, ".")}].%(ext)s`
-              : `%(title)s [${height}p ${container}]${safeAudioTag}.%(ext)s`,
+              ? `%(title)s [${height}p ${effectiveContainer}]${safeAudioTag} [clip ${clipStart.replace(/:/g, ".")}-${clipEnd.replace(/:/g, ".")}].%(ext)s`
+              : `%(title)s [${height}p ${effectiveContainer}]${safeAudioTag}.%(ext)s`,
           ),
           "--newline",
           url,
