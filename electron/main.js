@@ -431,7 +431,10 @@ async function installDownloadedMacUpdate(version) {
 
   const tempDir = path.join(app.getPath("temp"), "seedhe-updater");
   if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-  const dmgPath = path.join(tempDir, String(dmgAsset.name).replace(/\s+/g, "-"));
+  const dmgPath = path.join(
+    tempDir,
+    String(dmgAsset.name).replace(/\s+/g, "-"),
+  );
 
   pushAppUpdateState({
     status: "installing",
@@ -470,7 +473,8 @@ function buildRequestHeaders(url, isImage = false) {
     "User-Agent":
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
   };
-  if (isImage) headers.Accept = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8";
+  if (isImage)
+    headers.Accept = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8";
 
   const needsYouTubeReferer =
     host.includes("ytimg.com") ||
@@ -521,7 +525,11 @@ function fetchImageBuffer(url, redirectsLeft = 5) {
         const contentType = String(res.headers["content-type"] || "");
         if (!contentType.toLowerCase().startsWith("image/")) {
           res.resume();
-          return reject(new Error(`Thumbnail is not an image (${contentType || "unknown"})`));
+          return reject(
+            new Error(
+              `Thumbnail is not an image (${contentType || "unknown"})`,
+            ),
+          );
         }
 
         const chunks = [];
@@ -544,7 +552,9 @@ function fetchImageBuffer(url, redirectsLeft = 5) {
       },
     );
     req.on("error", reject);
-    req.setTimeout(30000, () => req.destroy(new Error("Thumbnail download timed out")));
+    req.setTimeout(30000, () =>
+      req.destroy(new Error("Thumbnail download timed out")),
+    );
   });
 }
 
@@ -647,7 +657,8 @@ async function checkForAppUpdate() {
   if (!supportsAppAutoUpdate || !app.isPackaged) {
     return {
       ok: false,
-      reason: "App updates are only available in packaged macOS/Windows builds.",
+      reason:
+        "App updates are only available in packaged macOS/Windows builds.",
     };
   }
   try {
@@ -943,8 +954,64 @@ function normalizePathForShell(filePath) {
   return path.normalize(cleaned);
 }
 
+function findBestExistingOutputPath(requestedPath) {
+  const requested = normalizePathForShell(requestedPath);
+  if (!requested) return null;
+  if (fs.existsSync(requested)) return requested;
+
+  const dir = path.dirname(requested);
+  if (!fs.existsSync(dir)) return null;
+
+  const reqExt = path.extname(requested);
+  const reqBase = path.basename(requested, reqExt);
+  const normalize = (s) =>
+    String(s || "")
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  const reqNorm = normalize(reqBase);
+  if (!reqNorm) return null;
+
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return null;
+  }
+
+  const scored = entries
+    .map((name) => {
+      const full = path.join(dir, name);
+      let st = null;
+      try {
+        st = fs.statSync(full);
+      } catch {
+        return null;
+      }
+      if (!st.isFile()) return null;
+
+      const base = path.basename(name, path.extname(name));
+      const baseNorm = normalize(base);
+      const exactStem = baseNorm === reqNorm;
+      const startsStem = baseNorm.startsWith(reqNorm) || reqNorm.startsWith(baseNorm);
+      if (!exactStem && !startsStem) return null;
+
+      return {
+        full,
+        score: exactStem ? 2 : 1,
+        mtimeMs: st.mtimeMs || 0,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score || b.mtimeMs - a.mtimeMs);
+
+  return scored.length > 0 ? scored[0].full : null;
+}
+
 function parseClockToSeconds(clockValue) {
-  const m = String(clockValue || "").match(/^(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)$/);
+  const m = String(clockValue || "").match(
+    /^(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)$/,
+  );
   if (!m) return null;
   const hh = Number(m[1]);
   const mm = Number(m[2]);
@@ -954,7 +1021,9 @@ function parseClockToSeconds(clockValue) {
 }
 
 function parseHmsToSeconds(value) {
-  const parts = String(value || "").split(":").map((v) => Number(v));
+  const parts = String(value || "")
+    .split(":")
+    .map((v) => Number(v));
   if (parts.some((n) => Number.isNaN(n))) return null;
   if (parts.length === 2) return parts[0] * 60 + parts[1];
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
@@ -997,6 +1066,34 @@ function isYouTubeUrl(url) {
     u.includes("youtu.be/") ||
     u.includes("youtube-nocookie.com/")
   );
+}
+
+function detectYtDlpAccessIssue(rawErrorOutput) {
+  const text = String(rawErrorOutput || "");
+  const normalized = text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  const isAgeRestricted =
+    normalized.includes("sign in to confirm your age") ||
+    normalized.includes("age-restricted") ||
+    normalized.includes("inappropriate for some users") ||
+    normalized.includes("verify your age") ||
+    (normalized.includes("be sure you're an adult") &&
+      normalized.includes("provide more info")) ||
+    (normalized.includes("be sure you\u2019re an adult") &&
+      normalized.includes("provide more info")) ||
+    (/\[(youtube|youtube:tab)\]/.test(normalized) &&
+      /(confirm your age|verify your age|adult|age[- ]restricted)/.test(
+        normalized,
+      ));
+  const isBotDetected =
+    normalized.includes("sign in to confirm you") ||
+    normalized.includes("confirm you're not a bot") ||
+    normalized.includes("confirm you\u2019re not a bot") ||
+    normalized.includes("the page needs to be reloaded");
+  return { isAgeRestricted, isBotDetected };
 }
 
 function ensureVideoFormatHasAudio(formatId) {
@@ -1048,7 +1145,9 @@ function createWindow() {
       const reqHeaders = { ...(details.requestHeaders || {}) };
       if (details.resourceType === "image") {
         if (!reqHeaders["User-Agent"] && !reqHeaders["user-agent"]) {
-          reqHeaders["User-Agent"] = buildRequestHeaders(details.url)["User-Agent"];
+          reqHeaders["User-Agent"] = buildRequestHeaders(details.url)[
+            "User-Agent"
+          ];
         }
         if (!reqHeaders.Referer && !reqHeaders.referer) {
           const referer = buildRequestHeaders(details.url).Referer;
@@ -1112,7 +1211,10 @@ app.whenReady().then(async () => {
   if (ytDlpUpdateInterval) clearInterval(ytDlpUpdateInterval);
   ytDlpUpdateInterval = setInterval(() => {
     checkAndUpdateYtDlp().catch((err) => {
-      console.warn("[update] Scheduled yt-dlp check failed:", err?.message || err);
+      console.warn(
+        "[update] Scheduled yt-dlp check failed:",
+        err?.message || err,
+      );
     });
   }, YTDLP_UPDATE_CHECK_INTERVAL_MS);
 });
@@ -1139,7 +1241,8 @@ function openYouTubeLogin(options = {}) {
     if (fresh) {
       const p = getCookiesPath();
       if (fs.existsSync(p)) fs.unlinkSync(p);
-      if (fs.existsSync(LEGACY_COOKIES_PATH)) fs.unlinkSync(LEGACY_COOKIES_PATH);
+      if (fs.existsSync(LEGACY_COOKIES_PATH))
+        fs.unlinkSync(LEGACY_COOKIES_PATH);
     }
 
     const partition = fresh
@@ -1320,28 +1423,24 @@ ipcMain.handle("get-video-info", async (_, url) => {
     );
     proc.on("close", (code) => {
       if (code !== 0) {
-        const isAgeRestricted =
-          errorOutput.includes("Sign in to confirm your age") ||
-          errorOutput.includes("age-restricted") ||
-          errorOutput.includes("inappropriate for some users");
+        const combinedOutput = `${errorOutput}\n${output}`;
+        const { isAgeRestricted, isBotDetected } =
+          detectYtDlpAccessIssue(combinedOutput);
         if (isAgeRestricted) return resolve({ ageRestricted: true });
-        const isBotDetected =
-          errorOutput.includes("Sign in to confirm you") ||
-          errorOutput.includes("confirm you're not a bot") ||
-          errorOutput.includes("The page needs to be reloaded");
         if (isBotDetected) return resolve({ botDetected: true });
         return reject(new Error(`yt-dlp failed: ${errorOutput.slice(0, 300)}`));
       }
-        try {
-          const data = JSON.parse(output);
-          const normalizeThumbUrl = (u) => {
-            if (!u || typeof u !== "string") return null;
-            const s = u.replace(/&amp;/g, "&").trim();
-            if (!s) return null;
-            if (s.startsWith("//")) return `https:${s}`;
-            if (s.startsWith("http://")) return s.replace(/^http:\/\//i, "https://");
-            return s;
-          };
+      try {
+        const data = JSON.parse(output);
+        const normalizeThumbUrl = (u) => {
+          if (!u || typeof u !== "string") return null;
+          const s = u.replace(/&amp;/g, "&").trim();
+          if (!s) return null;
+          if (s.startsWith("//")) return `https:${s}`;
+          if (s.startsWith("http://"))
+            return s.replace(/^http:\/\//i, "https://");
+          return s;
+        };
         const thumbs = Array.isArray(data.thumbnails) ? data.thumbnails : [];
         const bestThumb =
           thumbs
@@ -1351,7 +1450,8 @@ ipcMain.handle("get-video-info", async (_, url) => {
                 (b.width || 0) * (b.height || 0) -
                 (a.width || 0) * (a.height || 0),
             )[0]?.url || null;
-        const thumbnail = normalizeThumbUrl(data.thumbnail) || normalizeThumbUrl(bestThumb);
+        const thumbnail =
+          normalizeThumbUrl(data.thumbnail) || normalizeThumbUrl(bestThumb);
         const rawFormats = [];
         const allVideoFormats = data.formats
           .filter((f) => f.vcodec !== "none" && f.vcodec !== null && f.height)
@@ -1573,8 +1673,11 @@ ipcMain.handle(
         const safeAudioTag = videoAudioTag ? ` [${videoAudioTag}]` : "";
         const effectiveFormatId = ensureVideoFormatHasAudio(formatId);
         forcePremiereSafeMp4 = String(container || "").toLowerCase() === "mp4";
+        const forcePremiereSafeRemuxAudio = !forcePremiereSafeMp4;
         const effectiveContainer = forcePremiereSafeMp4 ? "mp4" : container;
-        const workingContainer = forcePremiereSafeMp4 ? "mkv" : effectiveContainer;
+        const workingContainer = forcePremiereSafeMp4
+          ? "mkv"
+          : effectiveContainer;
         args = [
           "-f",
           effectiveFormatId,
@@ -1587,10 +1690,16 @@ ipcMain.handle(
           getFfmpegBin(),
           "--postprocessor-args",
           "ffmpeg:-y",
+          ...(forcePremiereSafeRemuxAudio
+            ? [
+                "--postprocessor-args",
+                "VideoRemuxer+ffmpeg:-c:v copy -c:a libmp3lame -b:a 192k -ar 48000 -ac 2 -y",
+              ]
+            : []),
           ...(forcePremiereSafeMp4
             ? [
                 "--postprocessor-args",
-                "VideoConvertor+ffmpeg:-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -profile:v high -c:a aac -b:a 192k -ar 48000 -ac 2 -movflags +faststart -vsync cfr -y",
+                "VideoConvertor+ffmpeg:-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -profile:v high -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 -movflags +faststart -vsync cfr -y",
               ]
             : []),
           ...resolveJsRuntimeArgs(),
@@ -1631,14 +1740,15 @@ ipcMain.handle(
       const clipStartSec = parseHmsToSeconds(clipStart);
       const clipEndSec = parseHmsToSeconds(clipEnd);
       const clipDurationSec =
-        clipStartSec != null &&
-        clipEndSec != null &&
-        clipEndSec > clipStartSec
+        clipStartSec != null && clipEndSec != null && clipEndSec > clipStartSec
           ? clipEndSec - clipStartSec
           : null;
-      const sourceDurationSec = Number(durationSeconds) > 0 ? Number(durationSeconds) : null;
+      const sourceDurationSec =
+        Number(durationSeconds) > 0 ? Number(durationSeconds) : null;
       const ffmpegProgressDurationSec =
-        clipDurationSec && clipDurationSec > 0 ? clipDurationSec : sourceDurationSec;
+        clipDurationSec && clipDurationSec > 0
+          ? clipDurationSec
+          : sourceDurationSec;
 
       // Determine expected phases upfront for accurate progress scaling:
       // - audioOnly: 1 download phase + ExtractAudio conversion
@@ -1696,7 +1806,9 @@ ipcMain.handle(
           if (!activeDownloadFiles.includes(outputFilePath))
             activeDownloadFiles.push(outputFilePath);
         }
-        const convertDest = line.match(/\[VideoConvertor\] Destination:\s+(.+)/);
+        const convertDest = line.match(
+          /\[VideoConvertor\] Destination:\s+(.+)/,
+        );
         if (convertDest) {
           outputFilePath = path.normalize(convertDest[1].trim());
           if (!activeDownloadFiles.includes(outputFilePath))
@@ -1782,7 +1894,9 @@ ipcMain.handle(
           if (!activeDownloadFiles.includes(outputFilePath))
             activeDownloadFiles.push(outputFilePath);
         }
-        const convertDest = line.match(/\[VideoConvertor\] Destination:\s+(.+)/);
+        const convertDest = line.match(
+          /\[VideoConvertor\] Destination:\s+(.+)/,
+        );
         if (convertDest) {
           outputFilePath = path.normalize(convertDest[1].trim());
           if (!activeDownloadFiles.includes(outputFilePath))
@@ -1813,11 +1927,16 @@ ipcMain.handle(
         // ffmpeg emits live progress via "time=HH:MM:SS.xx" during trim/recode.
         // Use clip duration when clipping, else full source duration.
         if (ffmpegProgressDurationSec && ffmpegProgressDurationSec > 0) {
-          const ffmpegTimeMatch = line.match(/time=(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
+          const ffmpegTimeMatch = line.match(
+            /time=(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/,
+          );
           if (ffmpegTimeMatch) {
             const elapsed = parseClockToSeconds(ffmpegTimeMatch[1]);
             if (elapsed != null) {
-              const pct = Math.max(0, Math.min(1, elapsed / ffmpegProgressDurationSec));
+              const pct = Math.max(
+                0,
+                Math.min(1, elapsed / ffmpegProgressDurationSec),
+              );
               const scaled = Math.round(88 + pct * 11);
               win.webContents.send("download-progress", Math.min(scaled, 99));
             }
@@ -1895,14 +2014,8 @@ ipcMain.handle(
           resolve({ cancelled: true });
         } else {
           // Error path
-          const isChallenge =
-            stderrOutput.includes("confirm you're not a bot") ||
-            stderrOutput.includes("Sign in to confirm you") ||
-            stderrOutput.includes("The page needs to be reloaded");
-          const isAgeRestricted =
-            stderrOutput.includes("Sign in to confirm your age") ||
-            stderrOutput.includes("age-restricted") ||
-            stderrOutput.includes("inappropriate for some users");
+          const { isAgeRestricted, isBotDetected } =
+            detectYtDlpAccessIssue(stderrOutput);
           const filesToDelete = activeDownloadFiles.filter(
             isLikelyIntermediateYtDlpFile,
           );
@@ -1917,7 +2030,7 @@ ipcMain.handle(
               ),
             );
           }
-          if (isChallenge) {
+          if (isBotDetected) {
             return reject(
               new Error(
                 "YouTube challenge detected (reload/bot check). Re-authenticate or retry later.",
@@ -1931,7 +2044,9 @@ ipcMain.handle(
             .slice(-6)
             .join(" | ")
             .slice(0, 600);
-          reject(new Error(msg ? `Download failed: ${msg}` : "Download failed"));
+          reject(
+            new Error(msg ? `Download failed: ${msg}` : "Download failed"),
+          );
         }
       });
     });
@@ -2029,7 +2144,11 @@ ipcMain.handle("show-in-folder", async (_, filePath) => {
     const requested = normalizePathForShell(filePath);
     const dir = path.dirname(requested);
     const resolved = sanitizeOutputPath(requested, dir);
-    const targetFile = fs.existsSync(resolved) ? resolved : requested;
+    const targetFile =
+      (fs.existsSync(resolved) ? resolved : null) ||
+      (fs.existsSync(requested) ? requested : null) ||
+      findBestExistingOutputPath(requested) ||
+      requested;
 
     console.log("[show-in-folder] requested:", requested);
     console.log("[show-in-folder] resolved:", targetFile);
@@ -2046,7 +2165,10 @@ ipcMain.handle("show-in-folder", async (_, filePath) => {
           proc.unref();
           return true;
         } catch (err) {
-          console.error("[show-in-folder] explorer /select form1 error:", err.message);
+          console.error(
+            "[show-in-folder] explorer /select form1 error:",
+            err.message,
+          );
         }
         try {
           const fileForExplorer = targetFile.replace(/\//g, "\\");
@@ -2057,7 +2179,10 @@ ipcMain.handle("show-in-folder", async (_, filePath) => {
           proc.unref();
           return true;
         } catch (err) {
-          console.error("[show-in-folder] explorer /select form2 error:", err.message);
+          console.error(
+            "[show-in-folder] explorer /select form2 error:",
+            err.message,
+          );
         }
       }
       shell.showItemInFolder(targetFile);
